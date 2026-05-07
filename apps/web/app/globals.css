@@ -1,0 +1,98 @@
+@import "@xyflow/react/dist/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 32% 7%;
+    --foreground: 210 25% 96%;
+    --card: 222 28% 10%;
+    --popover: 222 28% 10%;
+    --muted: 222 22% 14%;
+    --muted-foreground: 216 14% 70%;
+    --border: 220 22% 18%;
+    --ring: 209 90% 62%;
+    --accent: 215 22% 15%;
+    --accent-foreground: 210 25% 96%;
+    --primary: 206 95% 60%;
+    --primary-foreground: 222 40% 6%;
+    --secondary: 220 18% 17%;
+    --secondary-foreground: 210 25% 96%;
+    --destructive: 0 72% 52%;
+    --destructive-foreground: 210 25% 96%;
+  }
+
+  .light {
+    --background: 210 40% 98%;
+    --foreground: 222 40% 10%;
+    --card: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --muted: 214 32% 94%;
+    --muted-foreground: 215 16% 38%;
+    --border: 214 24% 86%;
+    --ring: 209 90% 52%;
+    --accent: 214 30% 92%;
+    --accent-foreground: 222 40% 10%;
+    --primary: 209 90% 48%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214 30% 92%;
+    --secondary-foreground: 222 40% 10%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 210 40% 98%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply h-full;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at top, rgba(56, 189, 248, 0.08), transparent 26%),
+      linear-gradient(to bottom, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 1));
+  }
+}
+
+@layer utilities {
+  .panel-surface {
+    @apply border border-border/80 bg-card/90 shadow-panel backdrop-blur-sm;
+  }
+
+  .grid-canvas {
+    background-color: rgba(15, 23, 42, 0.6);
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: -1px -1px;
+  }
+}
+
+.react-flow__renderer {
+  background: transparent;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__node {
+  border-radius: 10px;
+}
+
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(15, 23, 42, 0.94);
+  background: rgba(96, 165, 250, 0.9);
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
