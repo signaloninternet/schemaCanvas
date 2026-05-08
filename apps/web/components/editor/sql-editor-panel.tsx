@@ -11,7 +11,9 @@ import { useSchemaWorkspaceStore } from "@/lib/schema-workspace-store";
 export function SqlEditorPanel(): React.ReactElement {
   const sqlDraft = useSchemaWorkspaceStore((state) => state.sqlDraft);
   const parserErrors = useSchemaWorkspaceStore((state) => state.parserErrors);
-  const parserWarnings = useSchemaWorkspaceStore((state) => state.parserWarnings);
+  const parserWarnings = useSchemaWorkspaceStore(
+    (state) => state.parserWarnings,
+  );
   const setSqlDraft = useSchemaWorkspaceStore((state) => state.setSqlDraft);
   const parseSql = useSchemaWorkspaceStore((state) => state.parseSql);
   const formatSql = useSchemaWorkspaceStore((state) => state.formatSql);
@@ -28,7 +30,9 @@ export function SqlEditorPanel(): React.ReactElement {
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">SQL editor</h2>
+            <h2 className="text-sm font-semibold text-foreground">
+              SQL editor
+            </h2>
             <p className="text-xs text-muted-foreground">
               PostgreSQL DDL with live parsing and last-valid-schema protection.
             </p>
@@ -63,16 +67,17 @@ export function SqlEditorPanel(): React.ReactElement {
           </span>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto">
         <CodeMirror
           value={sqlDraft}
+          className="h-full"
           height="100%"
           theme="dark"
           extensions={[sql({ dialect: PostgreSQL })]}
           basicSetup={{
             autocompletion: true,
             lineNumbers: true,
-            foldGutter: true
+            foldGutter: true,
           }}
           onChange={(value) => setSqlDraft(value)}
         />
