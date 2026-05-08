@@ -4,13 +4,13 @@ import type {
   SchemaColumn,
   SchemaProblem,
   SchemaTable,
-  TableConstraint
+  TableConstraint,
 } from "../model/types";
 import {
   createId,
   normalizeIdentifier,
   splitQualifiedName,
-  syncColumnReferences
+  syncColumnReferences,
 } from "../model/utils";
 import {
   createParseError,
@@ -26,8 +26,9 @@ import {
   resolveTable,
   splitSqlStatements,
   splitTopLevelComma,
-  tokenizeTopLevel
+  tokenizeTopLevel,
 } from "./sql-helpers";
+import { parseSqlAst } from "./parse-ast";
 
 const COLUMN_CONSTRAINT_KEYWORDS = new Set([
   "CONSTRAINT",
@@ -37,15 +38,15 @@ const COLUMN_CONSTRAINT_KEYWORDS = new Set([
   "UNIQUE",
   "DEFAULT",
   "REFERENCES",
-  "CHECK"
+  "CHECK",
 ]);
 
 function parseCreateTypeEnum(
   statement: string,
-  schema = createWorkingSchema()
+  schema = createWorkingSchema(),
 ): boolean {
   const match = statement.match(
-    /^CREATE\s+TYPE\s+([A-Za-z0-9_."-]+)\s+AS\s+ENUM\s*\(([\s\S]+)\)$/i
+    /^CREATE\s+TYPE\s+([A-Za-z0-9_."-]+)\s+AS\s+ENUM\s*\(([\s\S]+)\)$/i,
   );
   if (!match) {
     return false;
@@ -56,7 +57,7 @@ function parseCreateTypeEnum(
     id: createId("enum"),
     schema: nameParts.schema,
     name: nameParts.name,
-    values: parsePostgresStringArray(match[2] ?? "")
+    values: parsePostgresStringArray(match[2] ?? ""),
   });
   return true;
 }
@@ -67,11 +68,17 @@ function parseColumnDefinition(
   schemaTables: ParseSchemaResult["schema"]["tables"],
   line: number,
   statement: string,
-  problems: SchemaProblem[]
-): { column?: SchemaColumn; relationships: ParseSchemaResult["schema"]["relationships"]; constraintName?: string } {
+  problems: SchemaProblem[],
+): {
+  column?: SchemaColumn;
+  relationships: ParseSchemaResult["schema"]["relationships"];
+  constraintName?: string;
+} {
   const tokens = tokenizeTopLevel(fragment);
   if (tokens.length < 2) {
-    problems.push(createParseError("Column definition is incomplete.", line, statement));
+    problems.push(
+      createParseError("Column definition is incomplete.", line, statement),
+    );
     return { relationships: [] };
   }
 
@@ -95,7 +102,7 @@ function parseColumnDefinition(
     type: typeTokens.join(" "),
     nullable: true,
     primaryKey: false,
-    unique: false
+    unique: false,
   };
 
   let cursor = 0;
@@ -109,19 +116,27 @@ function parseColumnDefinition(
     }
 
     if (token === "CONSTRAINT") {
-      pendingConstraintName = normalizeIdentifier(constraintTokens[cursor + 1] ?? "");
+      pendingConstraintName = normalizeIdentifier(
+        constraintTokens[cursor + 1] ?? "",
+      );
       cursor += 2;
       continue;
     }
 
-    if (token === "PRIMARY" && constraintTokens[cursor + 1]?.toUpperCase() === "KEY") {
+    if (
+      token === "PRIMARY" &&
+      constraintTokens[cursor + 1]?.toUpperCase() === "KEY"
+    ) {
       column.primaryKey = true;
       column.nullable = false;
       cursor += 2;
       continue;
     }
 
-    if (token === "NOT" && constraintTokens[cursor + 1]?.toUpperCase() === "NULL") {
+    if (
+      token === "NOT" &&
+      constraintTokens[cursor + 1]?.toUpperCase() === "NULL"
+    ) {
       column.nullable = false;
       cursor += 2;
       continue;
@@ -143,7 +158,9 @@ function parseColumnDefinition(
       let end = cursor + 1;
       while (
         end < constraintTokens.length &&
-        !COLUMN_CONSTRAINT_KEYWORDS.has(constraintTokens[end]?.toUpperCase() ?? "")
+        !COLUMN_CONSTRAINT_KEYWORDS.has(
+          constraintTokens[end]?.toUpperCase() ?? "",
+        )
       ) {
         end += 1;
       }
@@ -161,7 +178,11 @@ function parseColumnDefinition(
       const referenceToken = constraintTokens[cursor + 1];
       if (!referenceToken) {
         problems.push(
-          createParseError("REFERENCES clause is missing a target.", line, statement)
+          createParseError(
+            "REFERENCES clause is missing a target.",
+            line,
+            statement,
+          ),
         );
         break;
       }
@@ -172,8 +193,8 @@ function parseColumnDefinition(
           createParseError(
             `Could not parse reference target "${referenceToken}".`,
             line,
-            statement
-          )
+            statement,
+          ),
         );
         break;
       }
@@ -191,8 +212,8 @@ function parseColumnDefinition(
           projectName: "",
           lastUpdatedAt: new Date().toISOString(),
           unsupportedStatements: [],
-          viewport: { x: 0, y: 0, zoom: 1 }
-        }
+          viewport: { x: 0, y: 0, zoom: 1 },
+        },
       };
 
       const remaining = constraintTokens.slice(cursor + 2);
@@ -206,7 +227,7 @@ function parseColumnDefinition(
         statement,
         pendingConstraintName,
         extractTrailingAction(remaining, "DELETE"),
-        extractTrailingAction(remaining, "UPDATE")
+        extractTrailingAction(remaining, "UPDATE"),
       );
       if ("severity" in relationship) {
         problems.push(relationship);
@@ -224,7 +245,7 @@ function parseColumnDefinition(
   return {
     column,
     relationships,
-    constraintName: pendingConstraintName
+    constraintName: pendingConstraintName,
   };
 }
 
@@ -234,14 +255,16 @@ function parseTableConstraint(
   fullSchema: ParseSchemaResult["schema"],
   line: number,
   statement: string,
-  problems: SchemaProblem[]
+  problems: SchemaProblem[],
 ): TableConstraint | undefined {
   const body = fragment.trim();
-  const constraintMatch = body.match(/^CONSTRAINT\s+([A-Za-z0-9_."-]+)\s+([\s\S]+)$/i);
+  const constraintMatch = body.match(
+    /^CONSTRAINT\s+([A-Za-z0-9_."-]+)\s+([\s\S]+)$/i,
+  );
   const constraintName = constraintMatch
     ? normalizeIdentifier(constraintMatch[1] ?? "")
     : undefined;
-  const content = constraintMatch ? constraintMatch[2] ?? "" : body;
+  const content = constraintMatch ? (constraintMatch[2] ?? "") : body;
 
   const primaryKeyMatch = content.match(/^PRIMARY\s+KEY\s*\(([^)]+)\)$/i);
   if (primaryKeyMatch) {
@@ -257,7 +280,7 @@ function parseTableConstraint(
       id: createId("constraint"),
       kind: "primary_key",
       name: constraintName,
-      columns
+      columns,
     };
   }
 
@@ -274,7 +297,7 @@ function parseTableConstraint(
       id: createId("constraint"),
       kind: "unique",
       name: constraintName,
-      columns
+      columns,
     };
   }
 
@@ -284,12 +307,12 @@ function parseTableConstraint(
       id: createId("constraint"),
       kind: "check",
       name: constraintName,
-      expression: checkMatch[1]?.trim() ?? ""
+      expression: checkMatch[1]?.trim() ?? "",
     };
   }
 
   const foreignKeyMatch = content.match(
-    /^FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+([A-Za-z0-9_."-]+)\s*\(([^)]+)\)([\s\S]*)$/i
+    /^FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+([A-Za-z0-9_."-]+)\s*\(([^)]+)\)([\s\S]*)$/i,
   );
   if (foreignKeyMatch) {
     const sourceColumns = parseColumnList(foreignKeyMatch[1] ?? "");
@@ -304,8 +327,8 @@ function parseTableConstraint(
           createParseError(
             `Foreign key column "${sourceColumns[0]}" was not found on "${table.name}".`,
             line,
-            statement
-          )
+            statement,
+          ),
         );
         return undefined;
       }
@@ -320,7 +343,7 @@ function parseTableConstraint(
         statement,
         constraintName,
         extractTrailingAction(actionTokens, "DELETE"),
-        extractTrailingAction(actionTokens, "UPDATE")
+        extractTrailingAction(actionTokens, "UPDATE"),
       );
 
       if ("severity" in relationship) {
@@ -335,8 +358,8 @@ function parseTableConstraint(
       createParseError(
         "Composite foreign keys are not yet visualized and are preserved as raw SQL.",
         line,
-        statement
-      )
+        statement,
+      ),
     );
     return undefined;
   }
@@ -347,9 +370,11 @@ function parseTableConstraint(
 function parseCreateTable(
   statement: string,
   result: ParseSchemaResult,
-  line: number
+  line: number,
 ): boolean {
-  const match = statement.match(/^CREATE\s+TABLE\s+([A-Za-z0-9_."-]+)\s*\(([\s\S]+)\)$/i);
+  const match = statement.match(
+    /^CREATE\s+TABLE\s+([A-Za-z0-9_."-]+)\s*\(([\s\S]+)\)$/i,
+  );
   if (!match) {
     return false;
   }
@@ -360,13 +385,13 @@ function parseCreateTable(
     schema: nameParts.schema,
     name: nameParts.name,
     columns: [],
-    constraints: []
+    constraints: [],
   };
 
   result.schema.tables.push(table);
   result.schema.layout[table.id] = {
     x: result.schema.tables.length * 300,
-    y: 80
+    y: 80,
   };
 
   const fragments = splitTopLevelComma(match[2] ?? "");
@@ -391,7 +416,7 @@ function parseCreateTable(
       result.schema.tables,
       line,
       statement,
-      result.errors
+      result.errors,
     );
     if (parsedColumn.column) {
       table.columns.push(parsedColumn.column);
@@ -406,7 +431,7 @@ function parseCreateTable(
       result.schema,
       line,
       statement,
-      result.errors
+      result.errors,
     );
     if (constraint) {
       table.constraints.push(constraint);
@@ -419,10 +444,10 @@ function parseCreateTable(
 function parseCreateIndex(
   statement: string,
   result: ParseSchemaResult,
-  line: number
+  line: number,
 ): boolean {
   const match = statement.match(
-    /^CREATE\s+(UNIQUE\s+)?INDEX\s+([A-Za-z0-9_."-]+)\s+ON\s+([A-Za-z0-9_."-]+)(?:\s+USING\s+([A-Za-z0-9_]+))?\s*\(([^)]+)\)$/i
+    /^CREATE\s+(UNIQUE\s+)?INDEX\s+([A-Za-z0-9_."-]+)\s+ON\s+([A-Za-z0-9_."-]+)(?:\s+USING\s+([A-Za-z0-9_]+))?\s*\(([^)]+)\)$/i,
   );
   if (!match) {
     return false;
@@ -431,7 +456,11 @@ function parseCreateIndex(
   const table = resolveTable(result.schema, match[3] ?? "");
   if (!table) {
     result.errors.push(
-      createParseError(`Index target table "${match[3]}" was not found.`, line, statement)
+      createParseError(
+        `Index target table "${match[3]}" was not found.`,
+        line,
+        statement,
+      ),
     );
     return true;
   }
@@ -442,17 +471,14 @@ function parseCreateIndex(
     tableId: table.id,
     columns: parseColumnList(match[5] ?? ""),
     unique: Boolean(match[1]),
-    method: match[4]?.toLowerCase()
+    method: match[4]?.toLowerCase(),
   });
   return true;
 }
 
-function parseComment(
-  statement: string,
-  result: ParseSchemaResult
-): boolean {
+function parseComment(statement: string, result: ParseSchemaResult): boolean {
   const tableMatch = statement.match(
-    /^COMMENT\s+ON\s+TABLE\s+([A-Za-z0-9_."-]+)\s+IS\s+'([\s\S]*)'$/i
+    /^COMMENT\s+ON\s+TABLE\s+([A-Za-z0-9_."-]+)\s+IS\s+'([\s\S]*)'$/i,
   );
   if (tableMatch) {
     const table = resolveTable(result.schema, tableMatch[1] ?? "");
@@ -463,11 +489,13 @@ function parseComment(
   }
 
   const columnMatch = statement.match(
-    /^COMMENT\s+ON\s+COLUMN\s+([A-Za-z0-9_."-]+)\.([A-Za-z0-9_."-]+)\s+IS\s+'([\s\S]*)'$/i
+    /^COMMENT\s+ON\s+COLUMN\s+([A-Za-z0-9_."-]+)\.([A-Za-z0-9_."-]+)\s+IS\s+'([\s\S]*)'$/i,
   );
   if (columnMatch) {
     const table = resolveTable(result.schema, columnMatch[1] ?? "");
-    const column = table ? resolveColumn(table, columnMatch[2] ?? "") : undefined;
+    const column = table
+      ? resolveColumn(table, columnMatch[2] ?? "")
+      : undefined;
     if (column) {
       column.comment = columnMatch[3]?.replace(/''/g, "'") ?? "";
     }
@@ -479,13 +507,14 @@ function parseComment(
 
 export function parseSchemaSql(
   sql: string,
-  options: ParseSchemaOptions = {}
+  options: ParseSchemaOptions = {},
 ): ParseSchemaResult {
   const result: ParseSchemaResult = {
     schema: createWorkingSchema(options.projectName),
+    ast: parseSqlAst(sql),
     warnings: [],
     errors: [],
-    unsupportedStatements: []
+    unsupportedStatements: [],
   };
 
   const statements = splitSqlStatements(sql);
@@ -514,20 +543,20 @@ export function parseSchemaSql(
     result.unsupportedStatements.push({
       id: createId("unsupported"),
       statement,
-      reason: "Statement is currently preserved as raw SQL."
+      reason: "Statement is currently preserved as raw SQL.",
     });
     result.warnings.push(
       createUnsupportedWarning(
         statement,
-        "This SQL statement is currently not visualized, but it is preserved as raw SQL."
-      )
+        "This SQL statement is currently not visualized, but it is preserved as raw SQL.",
+      ),
     );
   }
 
   result.schema.metadata.unsupportedStatements = result.unsupportedStatements;
   result.schema = mergeWithPreviousLayout(
     syncColumnReferences(result.schema),
-    options.previousSchema
+    options.previousSchema,
   );
   return result;
 }

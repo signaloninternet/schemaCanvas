@@ -13,6 +13,7 @@ import {
   generateMarkdownDocs,
   generateMigrationPreview,
   generateSchemaSql,
+  parseSqlAst,
   parseSchemaSql,
   schemaModelSchema,
   simpleEcommerceSql,
@@ -25,16 +26,22 @@ import {
   renameTable as renameTableOperation,
   validateSchema,
   valetPlatformSql,
+  type SchemaAst,
   type SchemaColumn,
   type SchemaModel,
-  type SchemaProblem
+  type SchemaProblem,
 } from "@schemacanvas/schema-core";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { autoLayoutSchema } from "@/lib/auto-layout";
 import { uniqueName } from "@/lib/utils";
 
-export type BottomTab = "problems" | "migration" | "documentation" | "json";
+export type BottomTab =
+  | "problems"
+  | "migration"
+  | "documentation"
+  | "pipeline"
+  | "json";
 export type ExamplePreset =
   | "blank"
   | "ecommerce"
@@ -53,6 +60,7 @@ interface WorkspaceSnapshot {
   schema: SchemaModel;
   parserWarnings: SchemaProblem[];
   parserErrors: SchemaProblem[];
+  parserAst: SchemaAst;
   validationProblems: SchemaProblem[];
   migrationPreview: string;
   activeBottomTab: BottomTab;
@@ -77,14 +85,14 @@ interface WorkspaceState extends WorkspaceSnapshot {
   updateColumn: (
     tableId: string,
     columnId: string,
-    patch: Partial<SchemaColumn>
+    patch: Partial<SchemaColumn>,
   ) => void;
   deleteColumn: (tableId: string, columnId: string) => void;
   addForeignKey: (
     sourceTableId: string,
     sourceColumnId: string,
     targetTableId: string,
-    targetColumnId: string
+    targetColumnId: string,
   ) => void;
   deleteForeignKey: (relationshipId: string) => void;
   addEnum: (name: string, values: string[]) => void;
@@ -92,9 +100,12 @@ interface WorkspaceState extends WorkspaceSnapshot {
   updateColumnComment: (
     tableId: string,
     columnId: string,
-    comment: string
+    comment: string,
   ) => void;
-  updateTablePosition: (tableId: string, position: { x: number; y: number }) => void;
+  updateTablePosition: (
+    tableId: string,
+    position: { x: number; y: number },
+  ) => void;
   updateViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   autoLayout: () => void;
   loadPreset: (preset: ExamplePreset) => void;
@@ -106,34 +117,34 @@ interface WorkspaceState extends WorkspaceSnapshot {
 function buildSnapshotFromSchema(
   schema: SchemaModel,
   sqlDraft: string,
-  partial?: Partial<WorkspaceSnapshot>
+  partial?: Partial<WorkspaceSnapshot>,
 ): WorkspaceSnapshot {
   const validationProblems = validateSchema(schema).problems;
   return {
     projectName: partial?.projectName ?? schema.metadata.projectName,
     schema,
     sqlDraft,
+    parserAst: partial?.parserAst ?? parseSqlAst(sqlDraft),
     parserWarnings: partial?.parserWarnings ?? [],
     parserErrors: partial?.parserErrors ?? [],
     validationProblems,
     migrationPreview:
-      partial?.migrationPreview ??
-      generateMigrationPreview(null, schema),
+      partial?.migrationPreview ?? generateMigrationPreview(null, schema),
     activeBottomTab: partial?.activeBottomTab ?? "problems",
     selection: partial?.selection ?? {},
-    currentPreset: partial?.currentPreset ?? "ecommerce"
+    currentPreset: partial?.currentPreset ?? "ecommerce",
   };
 }
 
 function parsePresetSql(
   sql: string,
   projectName: string,
-  preset: ExamplePreset
+  preset: ExamplePreset,
 ): WorkspaceSnapshot {
   const parsed = parseSchemaSql(sql, { projectName });
   const layoutApplied = autoLayoutSchema(parsed.schema);
   const nextSql = generateSchemaSql(layoutApplied, {
-    includeUnsupportedStatements: true
+    includeUnsupportedStatements: true,
   });
 
   return buildSnapshotFromSchema(layoutApplied, nextSql, {
@@ -141,7 +152,7 @@ function parsePresetSql(
     parserErrors: parsed.errors,
     projectName,
     currentPreset: preset,
-    migrationPreview: generateMigrationPreview(null, layoutApplied)
+    migrationPreview: generateMigrationPreview(null, layoutApplied),
   });
 }
 
@@ -150,34 +161,42 @@ function createBlankSnapshot(): WorkspaceSnapshot {
   return buildSnapshotFromSchema(schema, "", {
     projectName: "SchemaCanvas",
     currentPreset: "blank",
-    migrationPreview: "-- No schema changes detected."
+    migrationPreview: "-- No schema changes detected.",
   });
 }
 
-const presetSnapshots: Record<Exclude<ExamplePreset, "blank">, WorkspaceSnapshot> = {
-  ecommerce: parsePresetSql(simpleEcommerceSql, "SchemaCanvas Demo", "ecommerce"),
+const presetSnapshots: Record<
+  Exclude<ExamplePreset, "blank">,
+  WorkspaceSnapshot
+> = {
+  ecommerce: parsePresetSql(
+    simpleEcommerceSql,
+    "SchemaCanvas Demo",
+    "ecommerce",
+  ),
   "project-management": parsePresetSql(
     projectManagementSql,
     "Project Management",
-    "project-management"
+    "project-management",
   ),
   "valet-platform": parsePresetSql(
     valetPlatformSql,
     "Valet Platform",
-    "valet-platform"
-  )
+    "valet-platform",
+  ),
 };
 
 function applySchemaUpdate(
   previousSchema: SchemaModel,
   nextSchema: SchemaModel,
-  projectName: string
+  projectName: string,
 ): Pick<
   WorkspaceSnapshot,
   | "schema"
   | "sqlDraft"
   | "parserErrors"
   | "parserWarnings"
+  | "parserAst"
   | "validationProblems"
   | "migrationPreview"
   | "projectName"
@@ -185,16 +204,17 @@ function applySchemaUpdate(
   const schema = cloneSchema(nextSchema);
   schema.metadata.projectName = projectName;
   const sqlDraft = generateSchemaSql(schema, {
-    includeUnsupportedStatements: true
+    includeUnsupportedStatements: true,
   });
   return {
     schema,
     sqlDraft,
+    parserAst: parseSqlAst(sqlDraft),
     parserErrors: [],
     parserWarnings: [],
     validationProblems: validateSchema(schema).problems,
     migrationPreview: generateMigrationPreview(previousSchema, schema),
-    projectName
+    projectName,
   };
 }
 
@@ -213,7 +233,8 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           return { projectName, schema };
         });
       },
-      setSqlDraft: (sqlDraft) => set({ sqlDraft }),
+      setSqlDraft: (sqlDraft) =>
+        set({ sqlDraft, parserAst: parseSqlAst(sqlDraft) }),
       parseSql: () => {
         const state = get();
         if (!state.sqlDraft.trim()) {
@@ -224,14 +245,15 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
 
         const parsed = parseSchemaSql(state.sqlDraft, {
           previousSchema: state.schema,
-          projectName: state.projectName
+          projectName: state.projectName,
         });
 
         if (parsed.errors.length > 0) {
           set({
             parserErrors: parsed.errors,
             parserWarnings: parsed.warnings,
-            validationProblems: validateSchema(state.schema).problems
+            parserAst: parsed.ast,
+            validationProblems: validateSchema(state.schema).problems,
           });
           return;
         }
@@ -240,83 +262,86 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         schema.metadata.projectName = state.projectName;
         set({
           schema,
+          parserAst: parsed.ast,
           parserErrors: [],
           parserWarnings: parsed.warnings,
           validationProblems: validateSchema(schema).problems,
           migrationPreview: generateMigrationPreview(null, schema),
-          selection: {}
+          selection: {},
         });
       },
       formatSql: () => {
         const state = get();
         const parsed = parseSchemaSql(state.sqlDraft, {
           previousSchema: state.schema,
-          projectName: state.projectName
+          projectName: state.projectName,
         });
 
         if (parsed.errors.length > 0) {
           set({
             parserErrors: parsed.errors,
-            parserWarnings: parsed.warnings
+            parserWarnings: parsed.warnings,
+            parserAst: parsed.ast,
           });
           return;
         }
 
         const sqlDraft = generateSchemaSql(parsed.schema, {
-          includeUnsupportedStatements: true
+          includeUnsupportedStatements: true,
         });
         set({
           schema: parsed.schema,
           sqlDraft,
+          parserAst: parseSqlAst(sqlDraft),
           parserErrors: [],
           parserWarnings: parsed.warnings,
-          validationProblems: validateSchema(parsed.schema).problems
+          validationProblems: validateSchema(parsed.schema).problems,
         });
       },
       validateCurrent: () => {
         const state = get();
         set({
           validationProblems: validateSchema(state.schema).problems,
-          activeBottomTab: "problems"
+          activeBottomTab: "problems",
         });
       },
       setActiveBottomTab: (activeBottomTab) => set({ activeBottomTab }),
       selectTable: (tableId) =>
         set({
           selection: {
-            tableId
-          }
+            tableId,
+          },
         }),
       selectColumn: (tableId, columnId) =>
         set({
           selection: {
             tableId,
-            columnId
-          }
+            columnId,
+          },
         }),
       selectRelationship: (relationshipId) =>
         set({
           selection: {
-            relationshipId
-          }
+            relationshipId,
+          },
         }),
       addTable: () => {
         const state = get();
         const name = uniqueName(
           "new_table",
-          state.schema.tables.map((table) => table.name)
+          state.schema.tables.map((table) => table.name),
         );
         const result = addTableOperation(state.schema, {
           name,
           position: {
             x: 120 + state.schema.tables.length * 60,
-            y: 80 + state.schema.tables.length * 40
-          }
+            y: 80 + state.schema.tables.length * 40,
+          },
         });
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
           selection: { tableId: result.schema.tables.at(-1)?.id },
-          activeBottomTab: "migration"
+          activeBottomTab: "migration",
         });
       },
       deleteTable: (tableId) => {
@@ -324,7 +349,7 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const result = deleteTableOperation(state.schema, tableId);
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
-          selection: {}
+          selection: {},
         });
       },
       renameTable: (tableId, name) => {
@@ -342,10 +367,10 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const result = addColumnOperation(state.schema, tableId, {
           name: uniqueName(
             "new_column",
-            table.columns.map((column) => column.name)
+            table.columns.map((column) => column.name),
           ),
           type: "TEXT",
-          nullable: true
+          nullable: true,
         });
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
@@ -353,14 +378,19 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
             tableId,
             columnId: result.schema.tables
               .find((item) => item.id === tableId)
-              ?.columns.at(-1)?.id
+              ?.columns.at(-1)?.id,
           },
-          activeBottomTab: "migration"
+          activeBottomTab: "migration",
         });
       },
       updateColumn: (tableId, columnId, patch) => {
         const state = get();
-        const result = updateColumnOperation(state.schema, tableId, columnId, patch);
+        const result = updateColumnOperation(
+          state.schema,
+          tableId,
+          columnId,
+          patch,
+        );
         set(applySchemaUpdate(state.schema, result.schema, state.projectName));
       },
       deleteColumn: (tableId, columnId) => {
@@ -368,14 +398,14 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const result = deleteColumnOperation(state.schema, tableId, columnId);
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
-          selection: { tableId }
+          selection: { tableId },
         });
       },
       addForeignKey: (
         sourceTableId,
         sourceColumnId,
         targetTableId,
-        targetColumnId
+        targetColumnId,
       ) => {
         const state = get();
         const result = addForeignKeyOperation(state.schema, {
@@ -383,14 +413,16 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           sourceColumnId,
           targetTableId,
           targetColumnId,
-          constraintName: `${state.schema.tables.find((table) => table.id === sourceTableId)?.name}_${state.schema.tables
-            .find((table) => table.id === sourceTableId)
-            ?.columns.find((column) => column.id === sourceColumnId)?.name}_fkey`
+          constraintName: `${state.schema.tables.find((table) => table.id === sourceTableId)?.name}_${
+            state.schema.tables
+              .find((table) => table.id === sourceTableId)
+              ?.columns.find((column) => column.id === sourceColumnId)?.name
+          }_fkey`,
         });
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
           selection: { relationshipId: result.schema.relationships.at(-1)?.id },
-          activeBottomTab: "migration"
+          activeBottomTab: "migration",
         });
       },
       deleteForeignKey: (relationshipId) => {
@@ -398,20 +430,24 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const result = deleteForeignKeyOperation(state.schema, relationshipId);
         set({
           ...applySchemaUpdate(state.schema, result.schema, state.projectName),
-          selection: {}
+          selection: {},
         });
       },
       addEnum: (name, values) => {
         const state = get();
         const result = addEnumOperation(state.schema, {
           name,
-          values
+          values,
         });
         set(applySchemaUpdate(state.schema, result.schema, state.projectName));
       },
       updateTableComment: (tableId, comment) => {
         const state = get();
-        const result = updateTableCommentOperation(state.schema, tableId, comment);
+        const result = updateTableCommentOperation(
+          state.schema,
+          tableId,
+          comment,
+        );
         set(applySchemaUpdate(state.schema, result.schema, state.projectName));
       },
       updateColumnComment: (tableId, columnId, comment) => {
@@ -420,7 +456,7 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           state.schema,
           tableId,
           columnId,
-          comment
+          comment,
         );
         set(applySchemaUpdate(state.schema, result.schema, state.projectName));
       },
@@ -428,21 +464,21 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const state = get();
         const result = updateLayoutOperation(state.schema, tableId, position);
         set({
-          schema: result.schema
+          schema: result.schema,
         });
       },
       updateViewport: (viewport) => {
         const state = get();
         const result = updateViewportOperation(state.schema, viewport);
         set({
-          schema: result.schema
+          schema: result.schema,
         });
       },
       autoLayout: () => {
         const state = get();
         const nextSchema = autoLayoutSchema(state.schema);
         set({
-          ...applySchemaUpdate(state.schema, nextSchema, state.projectName)
+          ...applySchemaUpdate(state.schema, nextSchema, state.projectName),
         });
       },
       loadPreset: (preset) => {
@@ -457,7 +493,7 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         const state = get();
         const parsed = parseSchemaSql(sql, {
           previousSchema: state.schema,
-          projectName: projectName ?? state.projectName
+          projectName: projectName ?? state.projectName,
         });
 
         if (parsed.errors.length > 0) {
@@ -465,7 +501,8 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
             sqlDraft: sql,
             parserErrors: parsed.errors,
             parserWarnings: parsed.warnings,
-            activeBottomTab: "problems"
+            parserAst: parsed.ast,
+            activeBottomTab: "problems",
           });
           return;
         }
@@ -480,9 +517,9 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
               parserWarnings: parsed.warnings,
               parserErrors: [],
               activeBottomTab: "migration",
-              currentPreset: "blank"
-            }
-          )
+              currentPreset: "blank",
+            },
+          ),
         });
       },
       importSchemaModel: (payload) => {
@@ -493,17 +530,17 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
 
         const schema = cloneSchema(parsed.data);
         const sqlDraft = generateSchemaSql(schema, {
-          includeUnsupportedStatements: true
+          includeUnsupportedStatements: true,
         });
         set(
           buildSnapshotFromSchema(schema, sqlDraft, {
             projectName: schema.metadata.projectName,
             currentPreset: "blank",
-            activeBottomTab: "json"
-          })
+            activeBottomTab: "json",
+          }),
         );
       },
-      resetToBlank: () => set(createBlankSnapshot())
+      resetToBlank: () => set(createBlankSnapshot()),
     }),
     {
       name: "schemacanvas-workspace",
@@ -514,12 +551,13 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         schema: state.schema,
         parserWarnings: state.parserWarnings,
         parserErrors: state.parserErrors,
+        parserAst: state.parserAst,
         validationProblems: state.validationProblems,
         migrationPreview: state.migrationPreview,
         activeBottomTab: state.activeBottomTab,
         selection: state.selection,
-        currentPreset: state.currentPreset
-      })
-    }
-  )
+        currentPreset: state.currentPreset,
+      }),
+    },
+  ),
 );

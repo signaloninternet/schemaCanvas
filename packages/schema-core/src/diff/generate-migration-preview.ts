@@ -2,49 +2,146 @@ import type { SchemaModel } from "../model/types";
 import { getTableById, qualifyName } from "../model/utils";
 import { generateSchemaSql } from "../generator/generate-sql";
 
+function warning(message: string): string {
+  return `-- WARNING: ${message}`;
+}
+
+function parseTypeLimit(type: string): number | undefined {
+  const match = type.match(/\((\d+)/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function isPotentiallyDestructiveTypeChange(
+  previousType: string,
+  nextType: string,
+): boolean {
+  const previous = previousType.trim().toUpperCase();
+  const next = nextType.trim().toUpperCase();
+
+  if (previous === next) {
+    return false;
+  }
+
+  if (
+    (previous === "TEXT" || previous.startsWith("VARCHAR")) &&
+    next.startsWith("VARCHAR")
+  ) {
+    const previousLimit = parseTypeLimit(previous);
+    const nextLimit = parseTypeLimit(next);
+    return (
+      previous === "TEXT" ||
+      Boolean(previousLimit && nextLimit && nextLimit < previousLimit)
+    );
+  }
+
+  if (
+    ["BIGINT", "NUMERIC", "DECIMAL", "DOUBLE PRECISION"].includes(previous) &&
+    ["INTEGER", "INT", "SMALLINT"].includes(next)
+  ) {
+    return true;
+  }
+
+  const previousNumericLimit = parseTypeLimit(previous);
+  const nextNumericLimit = parseTypeLimit(next);
+  return Boolean(
+    previousNumericLimit &&
+    nextNumericLimit &&
+    nextNumericLimit < previousNumericLimit,
+  );
+}
+
 function diffColumns(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
 
   for (const table of next.tables) {
-    const previousTable = previous.tables.find((candidate) => candidate.id === table.id);
+    const previousTable = previous.tables.find(
+      (candidate) => candidate.id === table.id,
+    );
     if (!previousTable) {
       continue;
     }
 
     for (const column of table.columns) {
       const previousColumn = previousTable.columns.find(
-        (candidate) => candidate.id === column.id
+        (candidate) => candidate.id === column.id,
       );
       if (!previousColumn) {
         statements.push(
-          `ALTER TABLE ${qualifyName(table.schema, table.name)} ADD COLUMN ${column.name} ${column.type}${column.nullable ? "" : " NOT NULL"}${column.defaultValue ? ` DEFAULT ${column.defaultValue}` : ""};`
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} ADD COLUMN ${column.name} ${column.type}${column.nullable ? "" : " NOT NULL"}${column.defaultValue ? ` DEFAULT ${column.defaultValue}` : ""};`,
         );
         continue;
       }
 
-      if (previousColumn.type !== column.type) {
+      if (previousColumn.name !== column.name) {
         statements.push(
-          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} TYPE ${column.type};`
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} RENAME COLUMN ${previousColumn.name} TO ${column.name};`,
+        );
+      }
+
+      if (previousColumn.type !== column.type) {
+        if (
+          isPotentiallyDestructiveTypeChange(previousColumn.type, column.type)
+        ) {
+          statements.push(
+            warning(
+              `Changing ${qualifyName(table.schema, table.name)}.${column.name} from ${previousColumn.type} to ${column.type} may truncate or reject existing data.`,
+            ),
+          );
+        }
+        statements.push(
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} TYPE ${column.type};`,
         );
       }
 
       if (previousColumn.nullable !== column.nullable) {
+        if (!column.nullable) {
+          statements.push(
+            warning(
+              `Setting ${qualifyName(table.schema, table.name)}.${column.name} NOT NULL can fail if existing rows contain nulls.`,
+            ),
+          );
+        }
         statements.push(
-          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} ${column.nullable ? "DROP" : "SET"} NOT NULL;`
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} ${column.nullable ? "DROP" : "SET"} NOT NULL;`,
         );
       }
 
       if (previousColumn.defaultValue !== column.defaultValue) {
         statements.push(
-          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} ${column.defaultValue ? `SET DEFAULT ${column.defaultValue}` : "DROP DEFAULT"};`
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} ALTER COLUMN ${column.name} ${column.defaultValue ? `SET DEFAULT ${column.defaultValue}` : "DROP DEFAULT"};`,
         );
       }
     }
 
     for (const previousColumn of previousTable.columns) {
-      if (!table.columns.some((candidate) => candidate.id === previousColumn.id)) {
+      if (
+        !table.columns.some((candidate) => candidate.id === previousColumn.id)
+      ) {
+        const dependentRelationships = previous.relationships.filter(
+          (relationship) =>
+            relationship.sourceColumnId === previousColumn.id ||
+            relationship.targetColumnId === previousColumn.id,
+        );
+        const dependentIndexes = previous.indexes.filter(
+          (index) =>
+            index.tableId === previousTable.id &&
+            index.columns.includes(previousColumn.name),
+        );
+        if (dependentRelationships.length > 0 || dependentIndexes.length > 0) {
+          statements.push(
+            warning(
+              `Dropping ${qualifyName(previousTable.schema, previousTable.name)}.${previousColumn.name} affects ${dependentRelationships.length} foreign key dependency/dependencies and ${dependentIndexes.length} index(es).`,
+            ),
+          );
+        } else {
+          statements.push(
+            warning(
+              `Dropping ${qualifyName(previousTable.schema, previousTable.name)}.${previousColumn.name} permanently removes stored data.`,
+            ),
+          );
+        }
         statements.push(
-          `ALTER TABLE ${qualifyName(table.schema, table.name)} DROP COLUMN ${previousColumn.name};`
+          `ALTER TABLE ${qualifyName(table.schema, table.name)} DROP COLUMN ${previousColumn.name};`,
         );
       }
     }
@@ -56,7 +153,9 @@ function diffColumns(previous: SchemaModel, next: SchemaModel): string[] {
 function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const table of next.tables) {
-    const previousTable = previous.tables.find((candidate) => candidate.id === table.id);
+    const previousTable = previous.tables.find(
+      (candidate) => candidate.id === table.id,
+    );
     if (!previousTable) {
       statements.push(
         generateSchemaSql({
@@ -65,15 +164,50 @@ function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
           enums: [],
           indexes: [],
           relationships: next.relationships.filter(
-            (relationship) => relationship.sourceTableId === table.id
-          )
-        })
+            (relationship) => relationship.sourceTableId === table.id,
+          ),
+        }),
+      );
+      continue;
+    }
+
+    if (
+      previousTable.name !== table.name ||
+      previousTable.schema !== table.schema
+    ) {
+      if (previousTable.schema !== table.schema) {
+        statements.push(
+          warning(
+            `Schema changes for existing tables are not fully automated; review ${qualifyName(previousTable.schema, previousTable.name)} manually.`,
+          ),
+        );
+      }
+      statements.push(
+        `ALTER TABLE ${qualifyName(previousTable.schema, previousTable.name)} RENAME TO ${table.name};`,
       );
     }
   }
 
   for (const table of previous.tables) {
     if (!next.tables.some((candidate) => candidate.id === table.id)) {
+      const dependentRelationships = previous.relationships.filter(
+        (relationship) =>
+          relationship.sourceTableId === table.id ||
+          relationship.targetTableId === table.id,
+      );
+      if (dependentRelationships.length > 0) {
+        statements.push(
+          warning(
+            `Dropping ${qualifyName(table.schema, table.name)} removes ${dependentRelationships.length} foreign key dependency/dependencies.`,
+          ),
+        );
+      } else {
+        statements.push(
+          warning(
+            `Dropping ${qualifyName(table.schema, table.name)} permanently removes the table and its data.`,
+          ),
+        );
+      }
       statements.push(`DROP TABLE ${qualifyName(table.schema, table.name)};`);
     }
   }
@@ -84,10 +218,12 @@ function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
 function diffEnums(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const enumeration of next.enums) {
-    const previousEnum = previous.enums.find((candidate) => candidate.id === enumeration.id);
+    const previousEnum = previous.enums.find(
+      (candidate) => candidate.id === enumeration.id,
+    );
     if (!previousEnum) {
       statements.push(
-        `CREATE TYPE ${qualifyName(enumeration.schema, enumeration.name)} AS ENUM (${enumeration.values.map((value) => `'${value}'`).join(", ")});`
+        `CREATE TYPE ${qualifyName(enumeration.schema, enumeration.name)} AS ENUM (${enumeration.values.map((value) => `'${value}'`).join(", ")});`,
       );
       continue;
     }
@@ -95,7 +231,7 @@ function diffEnums(previous: SchemaModel, next: SchemaModel): string[] {
     for (const value of enumeration.values) {
       if (!previousEnum.values.includes(value)) {
         statements.push(
-          `ALTER TYPE ${qualifyName(enumeration.schema, enumeration.name)} ADD VALUE IF NOT EXISTS '${value}';`
+          `ALTER TYPE ${qualifyName(enumeration.schema, enumeration.name)} ADD VALUE IF NOT EXISTS '${value}';`,
         );
       }
     }
@@ -107,17 +243,21 @@ function diffEnums(previous: SchemaModel, next: SchemaModel): string[] {
 function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const relationship of next.relationships) {
-    if (previous.relationships.some((candidate) => candidate.id === relationship.id)) {
+    if (
+      previous.relationships.some(
+        (candidate) => candidate.id === relationship.id,
+      )
+    ) {
       continue;
     }
 
     const sourceTable = getTableById(next, relationship.sourceTableId);
     const targetTable = getTableById(next, relationship.targetTableId);
     const sourceColumn = sourceTable?.columns.find(
-      (column) => column.id === relationship.sourceColumnId
+      (column) => column.id === relationship.sourceColumnId,
     );
     const targetColumn = targetTable?.columns.find(
-      (column) => column.id === relationship.targetColumnId
+      (column) => column.id === relationship.targetColumnId,
     );
     if (!sourceTable || !targetTable || !sourceColumn || !targetColumn) {
       continue;
@@ -128,18 +268,20 @@ function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
       : "ADD ";
     const actions = [
       relationship.onDelete ? `ON DELETE ${relationship.onDelete}` : undefined,
-      relationship.onUpdate ? `ON UPDATE ${relationship.onUpdate}` : undefined
+      relationship.onUpdate ? `ON UPDATE ${relationship.onUpdate}` : undefined,
     ]
       .filter(Boolean)
       .join(" ");
 
     statements.push(
-      `ALTER TABLE ${qualifyName(sourceTable.schema, sourceTable.name)} ${constraintPrefix}FOREIGN KEY (${sourceColumn.name}) REFERENCES ${qualifyName(targetTable.schema, targetTable.name)}(${targetColumn.name})${actions ? ` ${actions}` : ""};`
+      `ALTER TABLE ${qualifyName(sourceTable.schema, sourceTable.name)} ${constraintPrefix}FOREIGN KEY (${sourceColumn.name}) REFERENCES ${qualifyName(targetTable.schema, targetTable.name)}(${targetColumn.name})${actions ? ` ${actions}` : ""};`,
     );
   }
 
   for (const relationship of previous.relationships) {
-    if (next.relationships.some((candidate) => candidate.id === relationship.id)) {
+    if (
+      next.relationships.some((candidate) => candidate.id === relationship.id)
+    ) {
       continue;
     }
 
@@ -149,7 +291,7 @@ function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
     }
 
     statements.push(
-      `ALTER TABLE ${qualifyName(sourceTable.schema, sourceTable.name)} DROP CONSTRAINT ${relationship.constraintName};`
+      `ALTER TABLE ${qualifyName(sourceTable.schema, sourceTable.name)} DROP CONSTRAINT ${relationship.constraintName};`,
     );
   }
 
@@ -158,7 +300,7 @@ function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
 
 export function generateMigrationPreview(
   previous: SchemaModel | null,
-  next: SchemaModel
+  next: SchemaModel,
 ): string {
   if (!previous) {
     return generateSchemaSql(next, { includeUnsupportedStatements: true });
@@ -168,7 +310,7 @@ export function generateMigrationPreview(
     ...diffEnums(previous, next),
     ...diffTables(previous, next),
     ...diffColumns(previous, next),
-    ...diffRelationships(previous, next)
+    ...diffRelationships(previous, next),
   ].filter(Boolean);
 
   if (!statements.length) {

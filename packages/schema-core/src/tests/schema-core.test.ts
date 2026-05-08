@@ -5,9 +5,13 @@ import { simpleEcommerceSql } from "../examples/simple-ecommerce";
 import { generateSchemaSql } from "../generator/generate-sql";
 import {
   addColumn,
+  deleteColumn,
   addForeignKey,
-  addTable
+  addTable,
+  renameTable,
+  updateColumn,
 } from "../operations/schema-operations";
+import { parseSqlAst } from "../parser/parse-ast";
 import { parseSchemaSql } from "../parser/parse-schema";
 import { validateSchema } from "../validator/validate-schema";
 
@@ -35,14 +39,22 @@ CREATE TABLE orders (
     expect(result.schema.enums).toHaveLength(1);
     expect(result.schema.tables.map((table) => table.name)).toEqual([
       "customers",
-      "orders"
+      "orders",
     ]);
     expect(result.schema.relationships).toHaveLength(1);
+    expect(result.ast.statementCount).toBe(3);
+    expect(result.ast.root.children.map((node) => node.kind)).toEqual([
+      "create_type_enum",
+      "create_table",
+      "create_table",
+    ]);
   });
 
   it("generates readable sql and markdown", () => {
     const parsed = parseSchemaSql(simpleEcommerceSql);
-    const sql = generateSchemaSql(parsed.schema, { includeUnsupportedStatements: true });
+    const sql = generateSchemaSql(parsed.schema, {
+      includeUnsupportedStatements: true,
+    });
     const markdown = generateMarkdownDocs(parsed.schema);
 
     expect(sql).toContain("CREATE TYPE order_status AS ENUM");
@@ -55,19 +67,21 @@ CREATE TABLE orders (
     const parsed = parseSchemaSql(simpleEcommerceSql);
     const withInvoices = addTable(parsed.schema, {
       name: "invoice_events",
-      position: { x: 900, y: 220 }
+      position: { x: 900, y: 220 },
     }).schema;
     const invoiceEvents = withInvoices.tables.find(
-      (table) => table.name === "invoice_events"
+      (table) => table.name === "invoice_events",
     );
-    const payments = withInvoices.tables.find((table) => table.name === "payments");
+    const payments = withInvoices.tables.find(
+      (table) => table.name === "payments",
+    );
     expect(invoiceEvents).toBeDefined();
     expect(payments).toBeDefined();
 
     const withColumns = addColumn(withInvoices, invoiceEvents!.id, {
       name: "payment_id",
       type: "UUID",
-      nullable: false
+      nullable: false,
     }).schema;
     const paymentIdColumn = withColumns.tables
       .find((table) => table.id === invoiceEvents!.id)
@@ -78,13 +92,15 @@ CREATE TABLE orders (
       sourceTableId: invoiceEvents!.id,
       sourceColumnId: paymentIdColumn!.id,
       targetTableId: payments!.id,
-      targetColumnId: payments!.columns[0]!.id
+      targetColumnId: payments!.columns[0]!.id,
     }).schema;
 
     const migration = generateMigrationPreview(parsed.schema, withRelationship);
     expect(migration).toContain("CREATE TABLE invoice_events");
     expect(migration).toContain("payment_id UUID NOT NULL");
-    expect(migration).toContain("FOREIGN KEY (payment_id) REFERENCES payments(id)");
+    expect(migration).toContain(
+      "FOREIGN KEY (payment_id) REFERENCES payments(id)",
+    );
   });
 
   it("produces deterministic warnings", () => {
@@ -93,11 +109,70 @@ CREATE TABLE orders (
   user_id UUID
 );`);
     const validation = validateSchema(parsed.schema);
-    expect(validation.problems.some((problem) => problem.code === "missing_primary_key")).toBe(
-      true
-    );
     expect(
-      validation.problems.some((problem) => problem.code === "possible_missing_foreign_key")
+      validation.problems.some(
+        (problem) => problem.code === "missing_primary_key",
+      ),
     ).toBe(true);
+    expect(
+      validation.problems.some(
+        (problem) => problem.code === "possible_missing_foreign_key",
+      ),
+    ).toBe(true);
+  });
+
+  it("builds a parser AST with unsupported statement preservation", () => {
+    const ast = parseSqlAst(`CREATE TABLE accounts (
+  id UUID PRIMARY KEY,
+  email TEXT UNIQUE
+);
+
+CREATE TRIGGER sync_accounts AFTER INSERT ON accounts EXECUTE FUNCTION sync();`);
+
+    expect(ast.statementCount).toBe(2);
+    expect(ast.supportedStatementCount).toBe(1);
+    expect(ast.unsupportedStatementCount).toBe(1);
+    expect(ast.root.children[0]?.children.map((node) => node.kind)).toEqual([
+      "column",
+      "column",
+    ]);
+    expect(ast.root.children[1]?.kind).toBe("unsupported");
+  });
+
+  it("detects migration renames and destructive changes", () => {
+    const parsed = parseSchemaSql(simpleEcommerceSql);
+    const customers = parsed.schema.tables.find(
+      (table) => table.name === "customers",
+    );
+    expect(customers).toBeDefined();
+    const email = customers!.columns.find((column) => column.name === "email");
+    expect(email).toBeDefined();
+
+    const renamedTable = renameTable(
+      parsed.schema,
+      customers!.id,
+      "shop_customers",
+    ).schema;
+    const renamedColumn = updateColumn(renamedTable, customers!.id, email!.id, {
+      name: "email_address",
+      type: "VARCHAR(128)",
+      nullable: false,
+    }).schema;
+    const droppedColumn = deleteColumn(
+      renamedColumn,
+      customers!.id,
+      customers!.columns[0]!.id,
+    ).schema;
+
+    const migration = generateMigrationPreview(parsed.schema, droppedColumn);
+
+    expect(migration).toContain(
+      "ALTER TABLE customers RENAME TO shop_customers;",
+    );
+    expect(migration).toContain(
+      "ALTER TABLE shop_customers RENAME COLUMN email TO email_address;",
+    );
+    expect(migration).toContain("-- WARNING:");
+    expect(migration).toContain("DROP COLUMN id;");
   });
 });

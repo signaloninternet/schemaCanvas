@@ -8,5 +8,6 @@ export * from "./model/schema-schema";
 export * from "./model/types";
 export * from "./model/utils";
 export * from "./operations/schema-operations";
+export * from "./parser/parse-ast";
 export * from "./parser/parse-schema";
 export * from "./validator/validate-schema";

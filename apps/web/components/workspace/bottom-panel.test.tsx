@@ -15,6 +15,7 @@ describe("BottomPanel", () => {
     expect(screen.getByText("Problems")).toBeInTheDocument();
     expect(screen.getByText("Migration")).toBeInTheDocument();
     expect(screen.getByText("Documentation")).toBeInTheDocument();
+    expect(screen.getByText("AST")).toBeInTheDocument();
     expect(screen.getByText("Schema JSON")).toBeInTheDocument();
     expect(screen.getAllByText(/better fit for an enum/i)).toHaveLength(2);
   });

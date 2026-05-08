@@ -140,8 +140,41 @@ export interface ParseSchemaOptions {
   projectName?: string;
 }
 
+export type SchemaAstNodeKind =
+  | "script"
+  | "statement"
+  | "create_type_enum"
+  | "create_table"
+  | "column"
+  | "table_constraint"
+  | "create_index"
+  | "comment"
+  | "enum_value"
+  | "unsupported";
+
+export type SchemaAstNodeStatus = "parsed" | "warning" | "error";
+
+export interface SchemaAstNode {
+  id: string;
+  kind: SchemaAstNodeKind;
+  label: string;
+  line: number;
+  status: SchemaAstNodeStatus;
+  raw: string;
+  attributes?: Record<string, string | number | boolean | string[]>;
+  children: SchemaAstNode[];
+}
+
+export interface SchemaAst {
+  root: SchemaAstNode;
+  statementCount: number;
+  supportedStatementCount: number;
+  unsupportedStatementCount: number;
+}
+
 export interface ParseSchemaResult {
   schema: SchemaModel;
+  ast: SchemaAst;
   warnings: SchemaProblem[];
   errors: SchemaProblem[];
   unsupportedStatements: UnsupportedStatement[];
