@@ -287,7 +287,7 @@
     font-weight: 500;
     padding: 6px 10px;
     border-radius: 7px;
-    cursor: default;
+    cursor: pointer;
     letter-spacing: 0;
     display: inline-flex;
     align-items: center;
@@ -360,7 +360,7 @@
     gap: 6px;
     padding: 6px 11px;
     border-radius: 7px;
-    cursor: default;
+    cursor: pointer;
     color: var(--ink-2);
     background: transparent;
     transition: background 80ms ease, color 80ms ease, transform 80ms ease;
@@ -370,7 +370,7 @@
     color: var(--ink);
   }
   .btn:active {
-    transform: translateY(0.5px);
+    transform: scale(0.95) translateY(0.5px);
   }
 
   .btn-soft {
@@ -391,6 +391,8 @@
   }
   .btn-primary:hover {
     background: color-mix(in oklch, var(--ink) 90%, var(--accent) 10%);
+    color: var(--bg);
+    border-color: color-mix(in oklch, var(--ink) 90%, var(--accent) 10%);
   }
 
   .btn-ghost-icon {
