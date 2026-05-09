@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ const COMMON_TYPES = [
 export function SchemaInspector(): React.ReactElement | null {
   const schema = useSchemaWorkspaceStore((state) => state.schema);
   const selection = useSchemaWorkspaceStore((state) => state.selection);
+  const selectTable = useSchemaWorkspaceStore((state) => state.selectTable);
   const renameTable = useSchemaWorkspaceStore((state) => state.renameTable);
   const deleteTable = useSchemaWorkspaceStore((state) => state.deleteTable);
   const addColumn = useSchemaWorkspaceStore((state) => state.addColumn);
@@ -46,13 +48,34 @@ export function SchemaInspector(): React.ReactElement | null {
   const selectedRelationship = schema.relationships.find(
     (relationship) => relationship.id === selection.relationshipId
   );
+  const inspectorRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        inspectorRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      selectTable(undefined);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [selectTable]);
 
   if (!selectedTable && !selectedRelationship) {
     return null;
   }
 
   return (
-    <aside className="absolute right-4 top-4 bottom-4 z-20 w-[360px] rounded-lg border border-border bg-card/96 shadow-panel backdrop-blur-sm">
+    <aside
+      ref={inspectorRef}
+      className="absolute right-4 top-4 bottom-4 z-20 w-[360px] rounded-lg border border-border bg-card/96 shadow-panel backdrop-blur-sm"
+    >
       <ScrollArea className="h-full">
         <div className="space-y-5 p-4">
           {selectedRelationship ? (
