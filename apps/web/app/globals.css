@@ -188,6 +188,15 @@
     height: 100%;
     background: var(--bg);
   }
+  .app-canvas-expanded {
+    grid-template-rows: 1fr;
+  }
+
+  .canvas-expanded-shell {
+    min-height: 0;
+    height: 100vh;
+    background: var(--bg);
+  }
 
   .workspace {
     display: grid;
@@ -869,13 +878,6 @@
     bottom: 14px;
     z-index: 5;
   }
-  .canvas-chrome-tr {
-    position: absolute;
-    right: 14px;
-    top: 14px;
-    z-index: 5;
-  }
-
   .zoom-cluster {
     display: inline-flex;
     align-items: stretch;
@@ -945,20 +947,6 @@
     border-color: var(--warn);
   }
   .problem-pill .meta {
-    color: var(--ink-3);
-  }
-
-  /* keyboard hint */
-  .kbd-hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border-radius: 99px;
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
-    box-shadow: var(--shadow-sm);
-    font-size: 11.5px;
     color: var(--ink-3);
   }
 

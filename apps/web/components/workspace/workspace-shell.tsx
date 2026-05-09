@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { CanvasPane } from "@/components/canvas/schema-canvas";
@@ -31,6 +31,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function WorkspaceShell(): React.ReactElement {
   const canvasExportRef = useRef<HTMLDivElement>(null);
+  const shouldFitAfterCanvasModeChange = useRef(false);
+  const [canvasExpanded, setCanvasExpanded] = useState(false);
   const sbCollapsed = useSchemaWorkspaceStore((state) => state.sbCollapsed);
   const accent = useSchemaWorkspaceStore((state) => state.accent);
   const cmdkOpen = useSchemaWorkspaceStore((state) => state.cmdkOpen);
@@ -43,6 +45,11 @@ export function WorkspaceShell(): React.ReactElement {
     (state) => state.validateCurrent
   );
   const { resolvedTheme } = useTheme();
+
+  const toggleCanvasExpanded = useCallback(() => {
+    shouldFitAfterCanvasModeChange.current = true;
+    setCanvasExpanded((expanded) => !expanded);
+  }, []);
 
   // Apply accent CSS vars at runtime so users can switch presets without a
   // page reload. Mirrors the reference's effect (theme-aware light/dark hex).
@@ -57,6 +64,19 @@ export function WorkspaceShell(): React.ReactElement {
 
   // Global keyboard shortcuts (per README "Interactions & Behavior").
   useEffect(() => {
+    if (!shouldFitAfterCanvasModeChange.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      requestFitView();
+      shouldFitAfterCanvasModeChange.current = false;
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [canvasExpanded, requestFitView]);
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const mod = event.metaKey || event.ctrlKey;
 
@@ -68,6 +88,12 @@ export function WorkspaceShell(): React.ReactElement {
       if (event.key === "Escape" && useSchemaWorkspaceStore.getState().cmdkOpen) {
         event.preventDefault();
         setCmdkOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && canvasExpanded) {
+        event.preventDefault();
+        shouldFitAfterCanvasModeChange.current = true;
+        setCanvasExpanded(false);
         return;
       }
       // The remaining shortcuts must not fire while the user is typing.
@@ -87,7 +113,13 @@ export function WorkspaceShell(): React.ReactElement {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setCmdkOpen, autoLayout, requestFitView, validateCurrent]);
+  }, [
+    setCmdkOpen,
+    autoLayout,
+    requestFitView,
+    validateCurrent,
+    canvasExpanded
+  ]);
 
   // Suppress the unused warning while exposing cmdkOpen on the shell tree —
   // the value is read inside <CommandPalette/>; keeping the subscription here
@@ -96,31 +128,47 @@ export function WorkspaceShell(): React.ReactElement {
   void cmdkOpen;
 
   return (
-    <div className="app">
-      <Header />
-      <div className={cn("workspace", sbCollapsed && "sidebar-collapsed")}>
-        {sbCollapsed ? <CollapsedSidebar /> : <Sidebar />}
-        <div className="main">
-          <PanelGroup direction="horizontal" style={{ minHeight: 0 }}>
-            <Panel defaultSize={44} minSize={28}>
-              <SqlEditorPanel />
-            </Panel>
-            <PanelResizeHandle
-              style={{
-                width: 1,
-                background: "var(--line)"
-              }}
-            />
-            <Panel defaultSize={56} minSize={35}>
-              <div style={{ position: "relative", height: "100%" }}>
-                <CanvasPane exportRef={canvasExportRef} />
-                <SchemaInspector />
-              </div>
-            </Panel>
-          </PanelGroup>
-          <BottomPanel />
+    <div className={cn("app", canvasExpanded && "app-canvas-expanded")}>
+      {canvasExpanded ? (
+        <div className="canvas-expanded-shell">
+          <CanvasPane
+            exportRef={canvasExportRef}
+            expanded={canvasExpanded}
+            onToggleExpanded={toggleCanvasExpanded}
+          />
         </div>
-      </div>
+      ) : (
+        <>
+          <Header />
+          <div className={cn("workspace", sbCollapsed && "sidebar-collapsed")}>
+            {sbCollapsed ? <CollapsedSidebar /> : <Sidebar />}
+            <div className="main">
+              <PanelGroup direction="horizontal" style={{ minHeight: 0 }}>
+                <Panel defaultSize={44} minSize={28}>
+                  <SqlEditorPanel />
+                </Panel>
+                <PanelResizeHandle
+                  style={{
+                    width: 1,
+                    background: "var(--line)"
+                  }}
+                />
+                <Panel defaultSize={56} minSize={35}>
+                  <div style={{ position: "relative", height: "100%" }}>
+                    <CanvasPane
+                      exportRef={canvasExportRef}
+                      expanded={canvasExpanded}
+                      onToggleExpanded={toggleCanvasExpanded}
+                    />
+                    <SchemaInspector />
+                  </div>
+                </Panel>
+              </PanelGroup>
+              <BottomPanel />
+            </div>
+          </div>
+        </>
+      )}
       <CommandPalette />
     </div>
   );

@@ -11,14 +11,13 @@ import {
   type Edge,
   type Node
 } from "@xyflow/react";
-import { Download, LayoutGrid } from "lucide-react";
+import { Download, LayoutGrid, Maximize2, Minimize2 } from "lucide-react";
 import { TableNode, type TableNodeData } from "@/components/canvas/table-node";
 import {
   RelationshipEdge,
   type RelationshipEdgeData
 } from "@/components/canvas/relationship-edge";
 import {
-  KbdHint,
   ProblemPill,
   ZoomCluster
 } from "@/components/canvas/canvas-chrome";
@@ -36,6 +35,11 @@ const edgeTypes = {
 
 interface SchemaCanvasProps {
   exportRef: React.RefObject<HTMLDivElement | null>;
+}
+
+interface CanvasPaneProps extends SchemaCanvasProps {
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 const TABLE_COLOR_HEX_LIGHT: Record<TableColorName, string> = {
@@ -207,9 +211,6 @@ function SchemaCanvasInner({
       <div className="canvas-chrome-tl">
         <ProblemPill />
       </div>
-      <div className="canvas-chrome-tr">
-        <KbdHint />
-      </div>
       <div className="canvas-chrome-bl">
         <ZoomCluster />
       </div>
@@ -228,8 +229,10 @@ export function SchemaCanvas({
 }
 
 export function CanvasPane({
-  exportRef
-}: SchemaCanvasProps): React.ReactElement {
+  exportRef,
+  expanded = false,
+  onToggleExpanded
+}: CanvasPaneProps): React.ReactElement {
   const schema = useSchemaWorkspaceStore((state) => state.schema);
   const autoLayout = useSchemaWorkspaceStore((state) => state.autoLayout);
   const sqlDraft = useSchemaWorkspaceStore((state) => state.sqlDraft);
@@ -259,6 +262,22 @@ export function CanvasPane({
           </span>
         </div>
         <div className="grow" />
+        {onToggleExpanded ? (
+          <button
+            type="button"
+            className="btn btn-soft"
+            onClick={onToggleExpanded}
+            aria-pressed={expanded}
+            title={expanded ? "Exit expanded canvas" : "Expand canvas"}
+          >
+            {expanded ? (
+              <Minimize2 size={13} strokeWidth={1.5} />
+            ) : (
+              <Maximize2 size={13} strokeWidth={1.5} />
+            )}
+            {expanded ? "Exit" : "Expand"}
+          </button>
+        ) : null}
         <button type="button" className="btn" onClick={autoLayout}>
           <LayoutGrid size={13} strokeWidth={1.5} />
           Auto-layout
