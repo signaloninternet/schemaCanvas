@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -9,7 +9,8 @@ import {
   ReactFlowProvider,
   useReactFlow,
   type Edge,
-  type Node
+  type Node,
+  type OnNodeDrag
 } from "@xyflow/react";
 import { Download, LayoutGrid, Maximize2, Minimize2 } from "lucide-react";
 import { TableNode, type TableNodeData } from "@/components/canvas/table-node";
@@ -75,6 +76,15 @@ function SchemaCanvasInner({
   );
   const updateViewport = useSchemaWorkspaceStore(
     (state) => state.updateViewport
+  );
+  const updateDraggedNodePosition = useCallback<OnNodeDrag<Node<TableNodeData>>>(
+    (_, node) => {
+      updateTablePosition(node.id, {
+        x: node.position.x,
+        y: node.position.y
+      });
+    },
+    [updateTablePosition]
   );
 
   const colorByTableId = useMemo(() => {
@@ -160,12 +170,8 @@ function SchemaCanvasInner({
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodeDragStop={(_, node) =>
-          updateTablePosition(node.id, {
-            x: node.position.x,
-            y: node.position.y
-          })
-        }
+        onNodeDrag={updateDraggedNodePosition}
+        onNodeDragStop={updateDraggedNodePosition}
         onMoveEnd={(_, viewport) =>
           updateViewport({
             x: viewport.x,
