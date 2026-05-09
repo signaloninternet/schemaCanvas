@@ -65,7 +65,7 @@ export function SchemaInspector(): React.ReactElement | null {
                   Review or remove the selected foreign key.
                 </p>
               </div>
-              <div className="rounded-md border border-border bg-background/50 p-3 text-sm text-foreground">
+              <div className="rounded-md border border-border bg-background/50 p-3 font-mono text-sm text-foreground">
                 {(() => {
                   const sourceTable = schema.tables.find(
                     (table) => table.id === selectedRelationship.sourceTableId
@@ -146,6 +146,7 @@ export function SchemaInspector(): React.ReactElement | null {
                       <div className="space-y-2">
                         <Label>Column name</Label>
                         <Input
+                          className="font-mono"
                           value={column.name}
                           onChange={(event) => {
                             try {
@@ -165,6 +166,7 @@ export function SchemaInspector(): React.ReactElement | null {
                       <div className="space-y-2">
                         <Label>Data type</Label>
                         <Input
+                          className="font-mono"
                           list="schemacanvas-column-types"
                           value={column.type}
                           onChange={(event) =>
