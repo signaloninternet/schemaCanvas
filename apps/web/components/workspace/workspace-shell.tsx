@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils";
 import { useSchemaWorkspaceStore } from "@/lib/schema-workspace-store";
 import { ACCENT_PRESETS } from "@/lib/accent-presets";
 
+interface WorkspaceMainProps {
+  canvasExportRef: React.RefObject<HTMLDivElement | null>;
+  canvasExpanded: boolean;
+  onToggleCanvasExpanded: () => void;
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -26,6 +32,55 @@ function isTypingTarget(target: EventTarget | null): boolean {
     tag === "INPUT" ||
     tag === "TEXTAREA" ||
     target.isContentEditable
+  );
+}
+
+function WorkspaceMain({
+  canvasExportRef,
+  canvasExpanded,
+  onToggleCanvasExpanded
+}: WorkspaceMainProps): React.ReactElement {
+  return (
+    <div className="main">
+      <PanelGroup
+        autoSaveId="schemacanvas-workspace-rows"
+        direction="vertical"
+        style={{ minHeight: 0, height: "100%" }}
+      >
+        <Panel id="workspace-top" order={1} defaultSize={72} minSize={42}>
+          <PanelGroup
+            autoSaveId="schemacanvas-editor-canvas-columns"
+            direction="horizontal"
+            style={{ minHeight: 0, height: "100%" }}
+          >
+            <Panel id="sql-editor" order={1} defaultSize={44} minSize={28}>
+              <SqlEditorPanel />
+            </Panel>
+            <PanelResizeHandle className="resize-handle resize-handle-x" />
+            <Panel id="schema-canvas" order={2} defaultSize={56} minSize={35}>
+              <div style={{ position: "relative", height: "100%" }}>
+                <CanvasPane
+                  exportRef={canvasExportRef}
+                  expanded={canvasExpanded}
+                  onToggleExpanded={onToggleCanvasExpanded}
+                />
+                <SchemaInspector />
+              </div>
+            </Panel>
+          </PanelGroup>
+        </Panel>
+        <PanelResizeHandle className="resize-handle resize-handle-y" />
+        <Panel
+          id="review-panel"
+          order={2}
+          defaultSize={28}
+          minSize={12}
+          maxSize={55}
+        >
+          <BottomPanel />
+        </Panel>
+      </PanelGroup>
+    </div>
   );
 }
 
@@ -141,31 +196,40 @@ export function WorkspaceShell(): React.ReactElement {
         <>
           <Header />
           <div className={cn("workspace", sbCollapsed && "sidebar-collapsed")}>
-            {sbCollapsed ? <CollapsedSidebar /> : <Sidebar />}
-            <div className="main">
-              <PanelGroup direction="horizontal" style={{ minHeight: 0 }}>
-                <Panel defaultSize={44} minSize={28}>
-                  <SqlEditorPanel />
-                </Panel>
-                <PanelResizeHandle
-                  style={{
-                    width: 1,
-                    background: "var(--line)"
-                  }}
+            {sbCollapsed ? (
+              <>
+                <CollapsedSidebar />
+                <WorkspaceMain
+                  canvasExportRef={canvasExportRef}
+                  canvasExpanded={canvasExpanded}
+                  onToggleCanvasExpanded={toggleCanvasExpanded}
                 />
-                <Panel defaultSize={56} minSize={35}>
-                  <div style={{ position: "relative", height: "100%" }}>
-                    <CanvasPane
-                      exportRef={canvasExportRef}
-                      expanded={canvasExpanded}
-                      onToggleExpanded={toggleCanvasExpanded}
-                    />
-                    <SchemaInspector />
-                  </div>
+              </>
+            ) : (
+              <PanelGroup
+                autoSaveId="schemacanvas-workspace-columns"
+                direction="horizontal"
+                style={{ minHeight: 0, height: "100%", width: "100%" }}
+              >
+                <Panel
+                  id="workspace-sidebar"
+                  order={1}
+                  defaultSize={18}
+                  minSize={12}
+                  maxSize={32}
+                >
+                  <Sidebar />
+                </Panel>
+                <PanelResizeHandle className="resize-handle resize-handle-x" />
+                <Panel id="workspace-main" order={2} defaultSize={82} minSize={48}>
+                  <WorkspaceMain
+                    canvasExportRef={canvasExportRef}
+                    canvasExpanded={canvasExpanded}
+                    onToggleCanvasExpanded={toggleCanvasExpanded}
+                  />
                 </Panel>
               </PanelGroup>
-              <BottomPanel />
-            </div>
+            )}
           </div>
         </>
       )}
