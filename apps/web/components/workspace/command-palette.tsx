@@ -9,7 +9,9 @@ import {
 } from "react";
 import {
   ArrowDownToLine,
-  Command as CommandIcon,
+  AlertTriangle,
+  Braces,
+  Columns3,
   FileText,
   LayoutGrid,
   Maximize2,
@@ -17,7 +19,9 @@ import {
   Plus,
   ShieldCheck,
   Sparkles,
-  Square
+  Square,
+  Table2,
+  type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -27,8 +31,7 @@ import {
 } from "@/lib/schema-workspace-store";
 import {
   ACCENT_NAMES,
-  ACCENT_PRESETS,
-  type AccentName
+  ACCENT_PRESETS
 } from "@/lib/accent-presets";
 import {
   exportCanvasPng,
@@ -36,13 +39,15 @@ import {
   exportSqlFile,
   findCanvasNode
 } from "@/lib/exports";
+import { useProblems } from "@/lib/problems";
 
 interface CommandItem {
   id: string;
   section: string;
   label: string;
   hint?: string;
-  icon: typeof CommandIcon;
+  keywords?: string[];
+  icon: LucideIcon;
   run: () => void | Promise<void>;
 }
 
@@ -67,7 +72,14 @@ export function CommandPalette(): ReactElement | null {
   const setCardStyle = useSchemaWorkspaceStore((state) => state.setCardStyle);
   const accent = useSchemaWorkspaceStore((state) => state.accent);
   const setAccent = useSchemaWorkspaceStore((state) => state.setAccent);
-  const enums = useSchemaWorkspaceStore((state) => state.schema.enums);
+  const schema = useSchemaWorkspaceStore((state) => state.schema);
+  const selectTable = useSchemaWorkspaceStore((state) => state.selectTable);
+  const selectColumn = useSchemaWorkspaceStore((state) => state.selectColumn);
+  const setActiveBottomTab = useSchemaWorkspaceStore(
+    (state) => state.setActiveBottomTab
+  );
+  const jumpToLine = useSchemaWorkspaceStore((state) => state.jumpToLine);
+  const problems = useProblems();
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -77,7 +89,7 @@ export function CommandPalette(): ReactElement | null {
     const buildEnumName = (): string => {
       let i = 1;
       let candidate = "new_enum";
-      while (enums.some((e) => e.name === candidate)) {
+      while (schema.enums.some((e) => e.name === candidate)) {
         i += 1;
         candidate = `new_enum_${i}`;
       }
@@ -205,6 +217,97 @@ export function CommandPalette(): ReactElement | null {
       }
     ];
 
+    for (const table of schema.tables) {
+      items.push({
+        id: `table-${table.id}`,
+        section: "Table",
+        label: table.name,
+        hint: `${table.columns.length} columns`,
+        keywords: [
+          table.schema,
+          table.comment ?? "",
+          ...table.columns.map((column) => column.name),
+          ...table.columns.map((column) => column.type)
+        ],
+        icon: Table2,
+        run: () => {
+          selectTable(table.id);
+          requestFitView();
+          toast.success(`Selected table ${table.name}.`);
+        }
+      });
+
+      for (const column of table.columns) {
+        items.push({
+          id: `column-${table.id}-${column.id}`,
+          section: "Column",
+          label: `${table.name}.${column.name}`,
+          hint: column.type,
+          keywords: [
+            table.name,
+            table.schema,
+            column.name,
+            column.type,
+            column.comment ?? "",
+            column.primaryKey ? "primary key pk" : "",
+            column.references ? "foreign key fk reference" : "",
+            column.nullable ? "nullable" : "not null required",
+            column.unique ? "unique" : ""
+          ],
+          icon: Columns3,
+          run: () => {
+            selectColumn(table.id, column.id);
+            requestFitView();
+            toast.success(`Selected column ${table.name}.${column.name}.`);
+          }
+        });
+      }
+    }
+
+    for (const enumDef of schema.enums) {
+      items.push({
+        id: `enum-${enumDef.id}`,
+        section: "Enum",
+        label: enumDef.name,
+        hint: `${enumDef.values.length} values`,
+        keywords: enumDef.values,
+        icon: Braces,
+        run: () => {
+          toast.info(`${enumDef.name}: ${enumDef.values.join(", ")}`);
+        }
+      });
+    }
+
+    for (const problem of problems) {
+      items.push({
+        id: `problem-${problem.id}`,
+        section: problem.kind === "error" ? "Error" : "Problem",
+        label: problem.title,
+        hint:
+          typeof problem.line === "number"
+            ? `${problem.code} · line ${problem.line}`
+            : problem.code,
+        keywords: [
+          problem.kind,
+          problem.code,
+          problem.tableId ?? "",
+          problem.columnId ?? ""
+        ],
+        icon: AlertTriangle,
+        run: () => {
+          setActiveBottomTab("problems");
+          if (typeof problem.line === "number") {
+            jumpToLine(problem.line);
+          }
+          if (problem.tableId && problem.columnId) {
+            selectColumn(problem.tableId, problem.columnId);
+          } else if (problem.tableId) {
+            selectTable(problem.tableId);
+          }
+        }
+      });
+    }
+
     for (const style of CARD_STYLES) {
       items.push({
         id: `card-style-${style}`,
@@ -245,7 +348,12 @@ export function CommandPalette(): ReactElement | null {
     setCardStyle,
     accent,
     setAccent,
-    enums
+    schema,
+    selectTable,
+    selectColumn,
+    setActiveBottomTab,
+    jumpToLine,
+    problems
   ]);
 
   const filtered = useMemo(() => {
@@ -256,7 +364,9 @@ export function CommandPalette(): ReactElement | null {
     return commands.filter(
       (c) =>
         c.label.toLowerCase().includes(q) ||
-        c.section.toLowerCase().includes(q)
+        c.section.toLowerCase().includes(q) ||
+        c.hint?.toLowerCase().includes(q) ||
+        c.keywords?.some((keyword) => keyword.toLowerCase().includes(q))
     );
   }, [commands, query]);
 
