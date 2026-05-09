@@ -99,7 +99,8 @@ export function Sidebar(): React.ReactElement {
 
   return (
     <aside className="sb" aria-label="Workspace sidebar">
-      <div className="sb-section">
+      <div className="sb-scroll">
+        <div className="sb-section">
         <span className="label">Workspace</span>
         <button
           type="button"
@@ -110,9 +111,9 @@ export function Sidebar(): React.ReactElement {
         >
           <ChevronLeft size={13} strokeWidth={1.5} />
         </button>
-      </div>
+        </div>
 
-      <div className="sb-list">
+        <div className="sb-list">
         {BRANCHES.map((branch) => (
           <button
             key={branch.id}
@@ -131,9 +132,9 @@ export function Sidebar(): React.ReactElement {
             <span className="meta">{branch.version}</span>
           </button>
         ))}
-      </div>
+        </div>
 
-      <div className="sb-section">
+        <div className="sb-section">
         <span className="label">Tables · {tables.length}</span>
         <button
           type="button"
@@ -144,8 +145,8 @@ export function Sidebar(): React.ReactElement {
         >
           <Plus size={11} strokeWidth={1.5} />
         </button>
-      </div>
-      <div className="sb-list">
+        </div>
+        <div className="sb-list">
         {tables.map((table, index) => {
           const color = tableColorForName(table.name, index);
           const isActive = selection.tableId === table.id;
@@ -170,12 +171,12 @@ export function Sidebar(): React.ReactElement {
             </button>
           );
         })}
-      </div>
+        </div>
 
-      <div className="sb-section">
+        <div className="sb-section">
         <span className="label">Enums · {enums.length}</span>
-      </div>
-      <div className="sb-list">
+        </div>
+        <div className="sb-list">
         {enums.map((enumDef) => (
           <button key={enumDef.id} type="button" className="sb-item">
             <span
@@ -186,12 +187,12 @@ export function Sidebar(): React.ReactElement {
             <span className="meta">{enumDef.values.length}</span>
           </button>
         ))}
-      </div>
+        </div>
 
-      <div className="sb-section">
+        <div className="sb-section">
         <span className="label">Recent</span>
-      </div>
-      <div className="sb-list">
+        </div>
+        <div className="sb-list">
         {RECENT.map((entry) => {
           const Icon = entry.icon === "history" ? History : GitBranch;
           return (
@@ -211,6 +212,7 @@ export function Sidebar(): React.ReactElement {
             </div>
           );
         })}
+        </div>
       </div>
 
       <div className="sb-foot">
