@@ -1,23 +1,30 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  type Connection,
+  useReactFlow,
   type Edge,
-  type Node
+  type Node,
+  type OnNodeDrag
 } from "@xyflow/react";
-import { toast } from "sonner";
-import { TableNode } from "@/components/canvas/table-node";
-import { RelationshipEdge } from "@/components/canvas/relationship-edge";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Download, LayoutGrid, Maximize2, Minimize2 } from "lucide-react";
+import { TableNode, type TableNodeData } from "@/components/canvas/table-node";
+import {
+  RelationshipEdge,
+  type RelationshipEdgeData
+} from "@/components/canvas/relationship-edge";
+import {
+  ProblemPill,
+  ZoomCluster
+} from "@/components/canvas/canvas-chrome";
 import { useSchemaWorkspaceStore } from "@/lib/schema-workspace-store";
+import { tableColorForName, type TableColorName } from "@/lib/table-colors";
+import { inferSuggestedFKs } from "@/lib/canvas-suggestions";
 
 const nodeTypes = {
   tableNode: TableNode
@@ -31,106 +38,140 @@ interface SchemaCanvasProps {
   exportRef: React.RefObject<HTMLDivElement | null>;
 }
 
+interface CanvasPaneProps extends SchemaCanvasProps {
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
+}
+
+const TABLE_COLOR_HEX_LIGHT: Record<TableColorName, string> = {
+  violet: "#7c3aed",
+  blue: "#2563eb",
+  emerald: "#059669",
+  amber: "#d97706",
+  rose: "#e11d48",
+  slate: "#475569"
+};
+
+function FitViewBridge(): null {
+  const { fitView } = useReactFlow();
+  const fitViewVersion = useSchemaWorkspaceStore(
+    (state) => state.fitViewVersion
+  );
+  const lastVersion = useRef(fitViewVersion);
+  useEffect(() => {
+    if (fitViewVersion !== lastVersion.current) {
+      lastVersion.current = fitViewVersion;
+      void fitView({ padding: 0.2, duration: 350 });
+    }
+  }, [fitView, fitViewVersion]);
+  return null;
+}
+
 function SchemaCanvasInner({
   exportRef
 }: SchemaCanvasProps): React.ReactElement {
   const schema = useSchemaWorkspaceStore((state) => state.schema);
-  const selection = useSchemaWorkspaceStore((state) => state.selection);
-  const selectRelationship = useSchemaWorkspaceStore(
-    (state) => state.selectRelationship
-  );
-  const selectTable = useSchemaWorkspaceStore((state) => state.selectTable);
-  const addTable = useSchemaWorkspaceStore((state) => state.addTable);
-  const addForeignKey = useSchemaWorkspaceStore((state) => state.addForeignKey);
   const updateTablePosition = useSchemaWorkspaceStore(
     (state) => state.updateTablePosition
   );
-  const updateViewport = useSchemaWorkspaceStore((state) => state.updateViewport);
+  const updateViewport = useSchemaWorkspaceStore(
+    (state) => state.updateViewport
+  );
+  const updateDraggedNodePosition = useCallback<OnNodeDrag<Node<TableNodeData>>>(
+    (_, node) => {
+      updateTablePosition(node.id, {
+        x: node.position.x,
+        y: node.position.y
+      });
+    },
+    [updateTablePosition]
+  );
 
-  const nodes = useMemo<Node[]>(
+  const colorByTableId = useMemo(() => {
+    const map = new Map<string, TableColorName>();
+    schema.tables.forEach((table, index) => {
+      map.set(table.id, tableColorForName(table.name, index));
+    });
+    return map;
+  }, [schema.tables]);
+
+  const nodes = useMemo<Node<TableNodeData>[]>(
     () =>
       schema.tables.map((table) => ({
         id: table.id,
         type: "tableNode",
         position: schema.layout[table.id] ?? { x: 0, y: 0 },
-        data: { tableId: table.id },
-        selected: selection.tableId === table.id
+        data: {
+          tableId: table.id,
+          color: colorByTableId.get(table.id) ?? "slate"
+        },
+        draggable: true,
+        selectable: true
       })),
-    [schema.layout, schema.tables, selection.tableId]
+    [schema.tables, schema.layout, colorByTableId]
   );
 
-  const edges = useMemo<Edge[]>(
-    () =>
-      schema.relationships.map((relationship) => ({
-        id: relationship.id,
+  const edges = useMemo<Edge<RelationshipEdgeData>[]>(() => {
+    const out: Edge<RelationshipEdgeData>[] = [];
+    const positions = schema.layout;
+
+    const declaredAndSuggested: Array<{
+      id: string;
+      sourceTableId: string;
+      sourceColumnId: string;
+      targetTableId: string;
+      targetColumnId: string;
+      suggested: boolean;
+    }> = [
+      ...schema.relationships.map((rel) => ({
+        id: rel.id,
+        sourceTableId: rel.sourceTableId,
+        sourceColumnId: rel.sourceColumnId,
+        targetTableId: rel.targetTableId,
+        targetColumnId: rel.targetColumnId,
+        suggested: false
+      })),
+      ...inferSuggestedFKs(schema).map((s) => ({
+        id: s.id,
+        sourceTableId: s.sourceTableId,
+        sourceColumnId: s.sourceColumnId,
+        targetTableId: s.targetTableId,
+        targetColumnId: s.targetColumnId,
+        suggested: true
+      }))
+    ];
+
+    for (const rel of declaredAndSuggested) {
+      const sourcePos = positions[rel.sourceTableId];
+      const targetPos = positions[rel.targetTableId];
+      if (!sourcePos || !targetPos) {
+        continue;
+      }
+      const sourceOnRight = targetPos.x > sourcePos.x;
+      const targetOnRight = sourcePos.x > targetPos.x;
+      out.push({
+        id: rel.id,
         type: "relationship",
-        source: relationship.sourceTableId,
-        target: relationship.targetTableId,
-        sourceHandle: relationship.sourceColumnId,
-        targetHandle: relationship.targetColumnId,
-        selected: selection.relationshipId === relationship.id,
-        animated: true
-      })),
-    [schema.relationships, selection.relationshipId]
-  );
-
-  const handleConnect = (connection: Connection): void => {
-    if (
-      !connection.source ||
-      !connection.target ||
-      !connection.sourceHandle ||
-      !connection.targetHandle
-    ) {
-      return;
+        source: rel.sourceTableId,
+        target: rel.targetTableId,
+        sourceHandle: `${rel.sourceColumnId}-source-${sourceOnRight ? "r" : "l"}`,
+        targetHandle: `${rel.targetColumnId}-target-${targetOnRight ? "r" : "l"}`,
+        data: rel,
+        zIndex: rel.suggested ? 0 : 1
+      });
     }
-
-    const sourceTable = schema.tables.find((table) => table.id === connection.source);
-    const targetTable = schema.tables.find((table) => table.id === connection.target);
-    const sourceColumn = sourceTable?.columns.find(
-      (column) => column.id === connection.sourceHandle
-    );
-    const targetColumn = targetTable?.columns.find(
-      (column) => column.id === connection.targetHandle
-    );
-
-    if (!sourceTable || !targetTable || !sourceColumn || !targetColumn) {
-      toast.error("The selected relationship endpoints are invalid.");
-      return;
-    }
-
-    if (sourceColumn.type !== targetColumn.type) {
-      toast.error("Foreign key source and target column types must match.");
-      return;
-    }
-
-    try {
-      addForeignKey(
-        connection.source,
-        connection.sourceHandle,
-        connection.target,
-        connection.targetHandle
-      );
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create relationship.");
-    }
-  };
+    return out;
+  }, [schema]);
 
   return (
-    <div ref={exportRef} className="relative h-full w-full grid-canvas">
+    <div className="canvas-wrap" ref={exportRef}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onConnect={handleConnect}
-        onPaneClick={() => selectTable(undefined)}
-        onEdgeClick={(_, edge) => selectRelationship(edge.id)}
-        onNodeDragStop={(_, node) =>
-          updateTablePosition(node.id, {
-            x: node.position.x,
-            y: node.position.y
-          })
-        }
+        onNodeDrag={updateDraggedNodePosition}
+        onNodeDragStop={updateDraggedNodePosition}
         onMoveEnd={(_, viewport) =>
           updateViewport({
             x: viewport.x,
@@ -140,46 +181,45 @@ function SchemaCanvasInner({
         }
         defaultViewport={schema.metadata.viewport}
         fitView={schema.tables.length > 0}
-        minZoom={0.2}
-        maxZoom={1.8}
-        snapToGrid
-        snapGrid={[16, 16]}
+        fitViewOptions={{ padding: 0.2 }}
+        minZoom={0.4}
+        maxZoom={2}
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
+        panOnDrag
+        proOptions={{ hideAttribution: true }}
       >
         <Background
+          variant={BackgroundVariant.Dots}
           gap={24}
           size={1}
-          variant={BackgroundVariant.Dots}
-          color="rgba(148, 163, 184, 0.18)"
+          color="var(--bg-canvas-grid)"
         />
         <MiniMap
+          position="bottom-right"
           pannable
           zoomable
-          style={{
-            background: "rgba(2, 6, 23, 0.9)",
-            border: "1px solid rgba(51, 65, 85, 0.8)"
+          nodeColor={(node) => {
+            const color = (node.data as unknown as TableNodeData | undefined)
+              ?.color;
+            return color ? TABLE_COLOR_HEX_LIGHT[color] : "#a8a294";
           }}
-          maskColor="rgba(15, 23, 42, 0.55)"
+          nodeStrokeWidth={0}
+          nodeBorderRadius={2}
+          maskStrokeColor="var(--accent)"
+          maskStrokeWidth={1.5}
+          ariaLabel="Canvas minimap"
         />
-        <Controls
-          className="!rounded-md !border !border-border !bg-card/90 !shadow-panel"
-          showInteractive={false}
-        />
+        <FitViewBridge />
       </ReactFlow>
 
-      {schema.tables.length === 0 ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="pointer-events-auto max-w-md rounded-lg border border-border bg-card/90 p-6 text-center shadow-panel">
-            <p className="text-base font-semibold text-foreground">
-              Start by writing SQL, importing a .sql file, or creating your first
-              table visually.
-            </p>
-            <Button className="mt-4" onClick={addTable}>
-              <Plus className="h-4 w-4" />
-              Create table
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      <div className="canvas-chrome-tl">
+        <ProblemPill />
+      </div>
+      <div className="canvas-chrome-bl">
+        <ZoomCluster />
+      </div>
     </div>
   );
 }
@@ -191,5 +231,71 @@ export function SchemaCanvas({
     <ReactFlowProvider>
       <SchemaCanvasInner exportRef={exportRef} />
     </ReactFlowProvider>
+  );
+}
+
+export function CanvasPane({
+  exportRef,
+  expanded = false,
+  onToggleExpanded
+}: CanvasPaneProps): React.ReactElement {
+  const schema = useSchemaWorkspaceStore((state) => state.schema);
+  const autoLayout = useSchemaWorkspaceStore((state) => state.autoLayout);
+  const sqlDraft = useSchemaWorkspaceStore((state) => state.sqlDraft);
+  const projectName = useSchemaWorkspaceStore((state) => state.projectName);
+  const totalRelationships =
+    schema.relationships.length + inferSuggestedFKs(schema).length;
+
+  const exportSql = (): void => {
+    const filename = `${projectName.toLowerCase().replace(/\s+/g, "-") || "schema"}.sql`;
+    const blob = new Blob([sqlDraft], { type: "text/sql" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="pane">
+      <div className="pane-hdr">
+        <div className="title">
+          <LayoutGrid size={13} strokeWidth={1.5} className="ico" />
+          <span>Canvas</span>
+          <span className="chip chip-muted">
+            {schema.tables.length} tables · {totalRelationships} relationships
+          </span>
+        </div>
+        <div className="grow" />
+        {onToggleExpanded ? (
+          <button
+            type="button"
+            className="btn btn-soft"
+            onClick={onToggleExpanded}
+            aria-pressed={expanded}
+            title={expanded ? "Exit expanded canvas" : "Expand canvas"}
+          >
+            {expanded ? (
+              <Minimize2 size={13} strokeWidth={1.5} />
+            ) : (
+              <Maximize2 size={13} strokeWidth={1.5} />
+            )}
+            {expanded ? "Exit" : "Expand"}
+          </button>
+        ) : null}
+        <button type="button" className="btn" onClick={autoLayout}>
+          <LayoutGrid size={13} strokeWidth={1.5} />
+          Auto-layout
+        </button>
+        <button type="button" className="btn" onClick={exportSql}>
+          <Download size={13} strokeWidth={1.5} />
+          Export
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        <SchemaCanvas exportRef={exportRef} />
+      </div>
+    </div>
   );
 }
