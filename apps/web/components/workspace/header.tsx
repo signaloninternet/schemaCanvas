@@ -20,7 +20,6 @@ interface HeaderProps {
 }
 
 export function Header({ onShare }: HeaderProps): React.ReactElement {
-  const projectName = useSchemaWorkspaceStore((state) => state.projectName);
   const parserErrors = useSchemaWorkspaceStore((state) => state.parserErrors);
   const setCmdkOpen = useSchemaWorkspaceStore((state) => state.setCmdkOpen);
   const { resolvedTheme, setTheme } = useTheme();
@@ -40,8 +39,6 @@ export function Header({ onShare }: HeaderProps): React.ReactElement {
         <div className="hdr-mark">S</div>
         <div className="hdr-title">
           <span className="crumb">SchemaCanvas</span>
-          <span className="sep">/</span>
-          <span>{projectName}</span>
         </div>
       </div>
 
