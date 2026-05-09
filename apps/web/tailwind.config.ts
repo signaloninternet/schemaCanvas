@@ -32,8 +32,8 @@ const config: Config = {
         glow: "0 0 0 1px rgba(96, 165, 250, 0.2), 0 0 30px rgba(59, 130, 246, 0.18)"
       },
       fontFamily: {
-        sans: ["var(--font-geist)", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"]
+        sans: ["var(--font-sans)"],
+        mono: ["var(--font-mono)"]
       }
     }
   },

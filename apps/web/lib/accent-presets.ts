@@ -1,4 +1,4 @@
-export type AccentName = "amber" | "violet" | "emerald" | "rose" | "cyan";
+export type AccentName = "green" | "yellow" | "blue";
 
 export interface AccentPreset {
   light: string;
@@ -8,17 +8,28 @@ export interface AccentPreset {
 }
 
 export const ACCENT_PRESETS: Record<AccentName, AccentPreset> = {
-  amber: { light: "#d97706", dark: "#f59e0b", soft: "#fef3c7", ink: "#7c2d12" },
-  violet: { light: "#7c3aed", dark: "#a78bfa", soft: "#ede9fe", ink: "#4c1d95" },
-  emerald: { light: "#059669", dark: "#34d399", soft: "#d1fae5", ink: "#064e3b" },
-  rose: { light: "#e11d48", dark: "#fb7185", soft: "#ffe4e6", ink: "#881337" },
-  cyan: { light: "#0891b2", dark: "#22d3ee", soft: "#cffafe", ink: "#164e63" }
+  green: {
+    light: "#581c87",
+    dark: "#a855f7",
+    soft: "color-mix(in oklch, var(--accent) 14%, var(--bg))",
+    ink: "color-mix(in oklch, var(--accent) 64%, var(--ink))"
+  },
+  yellow: {
+    light: "#f97316",
+    dark: "#fb923c",
+    soft: "color-mix(in oklch, var(--accent) 18%, var(--bg))",
+    ink: "color-mix(in oklch, var(--accent) 50%, var(--ink))"
+  },
+  blue: {
+    light: "#2563eb",
+    dark: "#60a5fa",
+    soft: "color-mix(in oklch, var(--accent) 14%, var(--bg))",
+    ink: "color-mix(in oklch, var(--accent) 64%, var(--ink))"
+  }
 };
 
 export const ACCENT_NAMES: AccentName[] = [
-  "amber",
-  "violet",
-  "emerald",
-  "rose",
-  "cyan"
+  "green",
+  "yellow",
+  "blue"
 ];

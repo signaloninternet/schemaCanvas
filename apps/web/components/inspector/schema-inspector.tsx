@@ -281,7 +281,7 @@ export function SchemaInspector(): React.ReactElement | null {
               {selectedColumn ? (
                 <>
                   <Separator />
-                  <div className="rounded-md border border-sky-500/20 bg-sky-500/10 p-3 text-sm text-sky-100">
+                  <div className="rounded-md border border-[color:var(--tbl-blue)] bg-[color:var(--tbl-blue-soft)] p-3 text-sm text-[color:var(--ink)]">
                     Editing <strong>{selectedColumn.name}</strong>. Drag the handle
                     from this column to another column on the canvas to create a
                     relationship.
@@ -291,8 +291,8 @@ export function SchemaInspector(): React.ReactElement | null {
 
               <Separator />
 
-              <div className="space-y-2 rounded-md border border-red-500/20 bg-red-500/10 p-3">
-                <p className="text-sm font-semibold text-red-200">Danger zone</p>
+              <div className="space-y-2 rounded-md border border-[color:var(--err)] bg-[color:var(--err-soft)] p-3">
+                <p className="text-sm font-semibold text-[color:var(--err)]">Danger zone</p>
                 <Button
                   variant="destructive"
                   className="w-full"

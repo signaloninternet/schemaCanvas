@@ -107,9 +107,9 @@ export function WorkspaceShell(): React.ReactElement {
   }, []);
 
   // Apply accent CSS vars at runtime so users can switch presets without a
-  // page reload. Mirrors the reference's effect (theme-aware light/dark hex).
+  // page reload.
   useEffect(() => {
-    const preset = ACCENT_PRESETS[accent] ?? ACCENT_PRESETS.amber;
+    const preset = ACCENT_PRESETS[accent] ?? ACCENT_PRESETS.green;
     const root = document.documentElement;
     const isDark = resolvedTheme === "dark";
     root.style.setProperty("--accent", isDark ? preset.dark : preset.light);

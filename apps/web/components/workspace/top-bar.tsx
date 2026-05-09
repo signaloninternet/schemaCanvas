@@ -143,7 +143,7 @@ export function TopBar({ canvasExportRef }: TopBarProps): React.ReactElement {
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
       <div className="flex min-w-0 items-center gap-4">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg border border-sky-400/20 bg-sky-400/10 p-2 text-sky-300">
+          <div className="rounded-lg border border-[color:var(--tbl-blue)] bg-[color:var(--tbl-blue-soft)] p-2 text-[color:var(--tbl-blue)]">
             <Palette className="h-4 w-4" />
           </div>
           <div>
