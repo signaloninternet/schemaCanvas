@@ -1,14 +1,7 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/layout/theme-provider";
-import { cn } from "@/lib/utils";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter"
-});
 
 export const metadata: Metadata = {
   title: "SchemaCanvas",
@@ -23,13 +16,8 @@ export default function RootLayout({
 }>): React.ReactElement {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={cn(
-          inter.variable,
-          "min-h-screen bg-background font-sans text-foreground antialiased"
-        )}
-      >
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+      <body>
+        <ThemeProvider attribute="data-theme" defaultTheme="light" enableSystem>
           {children}
           <Toaster
             richColors

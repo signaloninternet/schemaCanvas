@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ const COMMON_TYPES = [
 export function SchemaInspector(): React.ReactElement | null {
   const schema = useSchemaWorkspaceStore((state) => state.schema);
   const selection = useSchemaWorkspaceStore((state) => state.selection);
+  const selectTable = useSchemaWorkspaceStore((state) => state.selectTable);
   const renameTable = useSchemaWorkspaceStore((state) => state.renameTable);
   const deleteTable = useSchemaWorkspaceStore((state) => state.deleteTable);
   const addColumn = useSchemaWorkspaceStore((state) => state.addColumn);
@@ -46,13 +48,34 @@ export function SchemaInspector(): React.ReactElement | null {
   const selectedRelationship = schema.relationships.find(
     (relationship) => relationship.id === selection.relationshipId
   );
+  const inspectorRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (
+        event.target instanceof Node &&
+        inspectorRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      selectTable(undefined);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [selectTable]);
 
   if (!selectedTable && !selectedRelationship) {
     return null;
   }
 
   return (
-    <aside className="absolute right-4 top-4 bottom-4 z-20 w-[360px] rounded-lg border border-border bg-card/96 shadow-panel backdrop-blur-sm">
+    <aside
+      ref={inspectorRef}
+      className="absolute right-4 top-4 bottom-4 z-20 w-[360px] rounded-lg border border-border bg-card/96 shadow-panel backdrop-blur-sm"
+    >
       <ScrollArea className="h-full">
         <div className="space-y-5 p-4">
           {selectedRelationship ? (
@@ -65,7 +88,7 @@ export function SchemaInspector(): React.ReactElement | null {
                   Review or remove the selected foreign key.
                 </p>
               </div>
-              <div className="rounded-md border border-border bg-background/50 p-3 text-sm text-foreground">
+              <div className="rounded-md border border-border bg-background/50 p-3 font-mono text-sm text-foreground">
                 {(() => {
                   const sourceTable = schema.tables.find(
                     (table) => table.id === selectedRelationship.sourceTableId
@@ -146,6 +169,7 @@ export function SchemaInspector(): React.ReactElement | null {
                       <div className="space-y-2">
                         <Label>Column name</Label>
                         <Input
+                          className="font-mono"
                           value={column.name}
                           onChange={(event) => {
                             try {
@@ -165,6 +189,7 @@ export function SchemaInspector(): React.ReactElement | null {
                       <div className="space-y-2">
                         <Label>Data type</Label>
                         <Input
+                          className="font-mono"
                           list="schemacanvas-column-types"
                           value={column.type}
                           onChange={(event) =>
@@ -256,7 +281,7 @@ export function SchemaInspector(): React.ReactElement | null {
               {selectedColumn ? (
                 <>
                   <Separator />
-                  <div className="rounded-md border border-sky-500/20 bg-sky-500/10 p-3 text-sm text-sky-100">
+                  <div className="rounded-md border border-[color:var(--tbl-blue)] bg-[color:var(--tbl-blue-soft)] p-3 text-sm text-[color:var(--ink)]">
                     Editing <strong>{selectedColumn.name}</strong>. Drag the handle
                     from this column to another column on the canvas to create a
                     relationship.
@@ -266,8 +291,8 @@ export function SchemaInspector(): React.ReactElement | null {
 
               <Separator />
 
-              <div className="space-y-2 rounded-md border border-red-500/20 bg-red-500/10 p-3">
-                <p className="text-sm font-semibold text-red-200">Danger zone</p>
+              <div className="space-y-2 rounded-md border border-[color:var(--err)] bg-[color:var(--err-soft)] p-3">
+                <p className="text-sm font-semibold text-[color:var(--err)]">Danger zone</p>
                 <Button
                   variant="destructive"
                   className="w-full"

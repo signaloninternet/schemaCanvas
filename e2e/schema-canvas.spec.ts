@@ -7,7 +7,8 @@ test("loads the workspace and supports a basic visual edit", async ({
 
   await page.goto("/");
 
-  await expect(page.locator('input[value="SchemaCanvas Demo"]')).toBeVisible();
+  await expect(page.getByRole("img", { name: "SchemaCanvas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "main v0.4" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: /customers/i }).first(),
   ).toBeVisible();
@@ -31,7 +32,7 @@ test("loads the workspace and supports a basic visual edit", async ({
     page.locator("pre").filter({ hasText: "CREATE TABLE customers" }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Table" }).click();
+  await page.getByRole("button", { name: "New table" }).click();
   await expect(
     page.getByRole("button", { name: /new_table/i }).first(),
   ).toBeVisible();

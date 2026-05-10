@@ -1,146 +1,200 @@
 "use client";
 
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
-  CircleDot,
+  Calendar,
+  CirclePlus,
+  Hash,
   KeyRound,
   Link2,
-  Plus,
-  Table2,
-  Trash2
+  Type,
+  type LucideIcon
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSchemaWorkspaceStore } from "@/lib/schema-workspace-store";
+import type { TableColorName } from "@/lib/table-colors";
+
+export const TABLE_NODE_HEADER_H = 37;
+export const TABLE_NODE_COL_H = 32;
+export const TABLE_NODE_W = 232;
+
+export interface TableNodeData extends Record<string, unknown> {
+  tableId: string;
+  color: TableColorName;
+}
+
+function colTypeIcon(column: {
+  primaryKey: boolean;
+  type: string;
+  references?: unknown;
+}): LucideIcon {
+  if (column.primaryKey) {
+    return KeyRound;
+  }
+  if (column.references) {
+    return Link2;
+  }
+  const lowered = column.type.toLowerCase();
+  if (
+    lowered.includes("int") ||
+    lowered.includes("numeric") ||
+    lowered.includes("decimal") ||
+    lowered.includes("real") ||
+    lowered.includes("double")
+  ) {
+    return CirclePlus;
+  }
+  if (lowered.includes("time") || lowered.includes("date")) {
+    return Calendar;
+  }
+  if (lowered.includes("uuid")) {
+    return Hash;
+  }
+  return Type;
+}
 
 function TableNodeComponent({
   data,
   selected
 }: NodeProps): React.ReactElement | null {
-  const tableId = (data as { tableId?: string }).tableId;
-  if (!tableId) {
-    return null;
-  }
+  const { tableId, color } = data as unknown as TableNodeData;
   const table = useSchemaWorkspaceStore((state) =>
-    state.schema.tables.find((item) => item.id === tableId)
+    state.schema.tables.find((t) => t.id === tableId)
   );
-  const selection = useSchemaWorkspaceStore((state) => state.selection);
+  const cardStyle = useSchemaWorkspaceStore((state) => state.cardStyle);
+  const hoveredCol = useSchemaWorkspaceStore((state) => state.hoveredCol);
+  const setHoveredCol = useSchemaWorkspaceStore(
+    (state) => state.setHoveredCol
+  );
+  const relationships = useSchemaWorkspaceStore(
+    (state) => state.schema.relationships
+  );
   const selectTable = useSchemaWorkspaceStore((state) => state.selectTable);
-  const selectColumn = useSchemaWorkspaceStore((state) => state.selectColumn);
-  const addColumn = useSchemaWorkspaceStore((state) => state.addColumn);
-  const deleteTable = useSchemaWorkspaceStore((state) => state.deleteTable);
 
   if (!table) {
     return null;
   }
 
+  // A column is highlighted when:
+  // - it's the directly-hovered column, OR
+  // - the hovered column has an FK relationship to/from this column.
+  const highlightedColIds = new Set<string>();
+  if (hoveredCol) {
+    if (hoveredCol.tableId === table.id) {
+      highlightedColIds.add(hoveredCol.columnId);
+    }
+    for (const rel of relationships) {
+      const matchSrc =
+        rel.sourceTableId === hoveredCol.tableId &&
+        rel.sourceColumnId === hoveredCol.columnId;
+      const matchTgt =
+        rel.targetTableId === hoveredCol.tableId &&
+        rel.targetColumnId === hoveredCol.columnId;
+      if (matchSrc && rel.targetTableId === table.id) {
+        highlightedColIds.add(rel.targetColumnId);
+      }
+      if (matchTgt && rel.sourceTableId === table.id) {
+        highlightedColIds.add(rel.sourceColumnId);
+      }
+    }
+  }
+
+  const isRelated =
+    selected ||
+    (hoveredCol != null &&
+      (hoveredCol.tableId === table.id || highlightedColIds.size > 0));
+
+  const cardVars: CSSProperties = {
+    ["--tbl-color" as string]: `var(--tbl-${color})`,
+    ["--tbl-soft" as string]: `var(--tbl-${color}-soft)`
+  };
+
   return (
     <div
-      className={cn(
-        "w-[304px] overflow-hidden rounded-lg border bg-card/95 shadow-panel transition-all",
-        selected ? "border-sky-400/70 shadow-glow" : "border-border/80"
-      )}
-      onClick={() => selectTable(table.id)}
-      role="button"
-      tabIndex={0}
+      className={cn("tbl", isRelated && "is-related")}
+      data-style={cardStyle}
+      style={cardVars}
+      onClick={(event) => {
+        event.stopPropagation();
+        selectTable(table.id);
+      }}
     >
-      <div className="flex items-center justify-between border-b border-border/80 px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Table2 className="h-4 w-4 text-sky-300" />
-            <p className="truncate text-sm font-semibold text-foreground">
-              {table.name}
-            </p>
-          </div>
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            {table.schema}
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <Badge variant="info">{table.columns.length} cols</Badge>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={(event) => {
-              event.stopPropagation();
-              deleteTable(table.id);
-            }}
-          >
-            <Trash2 className="h-4 w-4 text-muted-foreground" />
-          </Button>
-        </div>
+      <div className="tbl-head">
+        <span className="dot" />
+        <span>{table.name}</span>
+        <span className="schema">{table.schema}</span>
       </div>
-      <div className="divide-y divide-border/60">
+      <div className="tbl-cols">
         {table.columns.map((column, index) => {
-          const isSelected =
-            selection.tableId === table.id && selection.columnId === column.id;
-          const hasReference = Boolean(column.references);
+          const top = TABLE_NODE_HEADER_H + index * TABLE_NODE_COL_H + TABLE_NODE_COL_H / 2;
+          const Icon = colTypeIcon(column);
+          const isFK = Boolean(column.references);
+          const isHi = highlightedColIds.has(column.id);
           return (
             <div
               key={column.id}
               className={cn(
-                "group relative flex min-h-9 items-center gap-3 px-4 py-2 transition-colors",
-                isSelected ? "bg-sky-500/10" : "hover:bg-accent/70"
+                "tbl-col",
+                column.primaryKey && "is-pk",
+                isFK && "is-fk",
+                isHi && "is-hi"
               )}
-              onClick={(event) => {
-                event.stopPropagation();
-                selectColumn(table.id, column.id);
-              }}
-              role="button"
-              tabIndex={0}
+              onMouseEnter={() =>
+                setHoveredCol({ tableId: table.id, columnId: column.id })
+              }
+              onMouseLeave={() => setHoveredCol(null)}
             >
+              {/* Hidden React Flow handles — left + right, source + target — let edges connect at the column row centre regardless of relative table position. */}
               <Handle
                 type="target"
-                id={column.id}
+                id={`${column.id}-target-l`}
                 position={Position.Left}
-                style={{ top: 18 + index * 41, left: -5 }}
+                style={{ top, left: -1 }}
               />
               <Handle
                 type="source"
-                id={column.id}
-                position={Position.Right}
-                style={{ top: 18 + index * 41, right: -5 }}
+                id={`${column.id}-source-l`}
+                position={Position.Left}
+                style={{ top, left: -1 }}
               />
-              <div className="flex w-4 justify-center">
+              <Handle
+                type="target"
+                id={`${column.id}-target-r`}
+                position={Position.Right}
+                style={{ top, right: -1 }}
+              />
+              <Handle
+                type="source"
+                id={`${column.id}-source-r`}
+                position={Position.Right}
+                style={{ top, right: -1 }}
+              />
+
+              <span className="ico">
+                <Icon size={12} strokeWidth={1.5} />
+              </span>
+              <span>
+                <span className="name">{column.name}</span>
+              </span>
+              <span className="flags">
                 {column.primaryKey ? (
-                  <KeyRound className="h-4 w-4 text-amber-300" />
-                ) : hasReference ? (
-                  <Link2 className="h-4 w-4 text-sky-300" />
-                ) : (
-                  <CircleDot className="h-3.5 w-3.5 text-muted-foreground/70" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-foreground">{column.name}</p>
-                <p className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {column.type}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-1">
-                {!column.nullable ? <Badge>NN</Badge> : null}
-                {column.unique ? <Badge variant="warning">UQ</Badge> : null}
-                {column.defaultValue ? <Badge variant="success">DF</Badge> : null}
-              </div>
+                  <span className="flag flag-pk">PK</span>
+                ) : null}
+                {isFK ? <span className="flag flag-fk">FK</span> : null}
+                {!column.primaryKey && !column.nullable ? (
+                  <span className="flag flag-nn">NN</span>
+                ) : null}
+                {column.unique && !column.primaryKey ? (
+                  <span className="flag flag-uq">UQ</span>
+                ) : null}
+                {column.defaultValue ? (
+                  <span className="flag flag-df">DF</span>
+                ) : null}
+              </span>
             </div>
           );
         })}
-      </div>
-      <div className="border-t border-border/80 p-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-center"
-          onClick={(event) => {
-            event.stopPropagation();
-            addColumn(table.id);
-          }}
-        >
-          <Plus className="h-4 w-4" />
-          Add column
-        </Button>
       </div>
     </div>
   );

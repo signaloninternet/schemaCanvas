@@ -34,6 +34,7 @@ import {
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { autoLayoutSchema } from "@/lib/auto-layout";
+import type { AccentName } from "@/lib/accent-presets";
 import { uniqueName } from "@/lib/utils";
 
 export type BottomTab =
@@ -69,10 +70,33 @@ interface WorkspaceSnapshot {
   activeBottomTab: BottomTab;
   selection: SchemaSelection;
   currentPreset: ExamplePreset;
+  sbCollapsed: boolean;
+  jumpedLine: number | null;
+  cardStyle: CardStyle;
+  hoveredCol: HoveredColumn | null;
+  cmdkOpen: boolean;
+  accent: AccentName;
+  fitViewVersion: number;
+}
+
+export type CardStyle = "lucid" | "minimal" | "blueprint";
+export interface HoveredColumn {
+  tableId: string;
+  columnId: string;
 }
 
 interface WorkspaceState extends WorkspaceSnapshot {
   setProjectName: (projectName: string) => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  jumpToLine: (line: number) => void;
+  clearJumpedLine: () => void;
+  setCardStyle: (style: CardStyle) => void;
+  setHoveredCol: (hoveredCol: HoveredColumn | null) => void;
+  setCmdkOpen: (open: boolean) => void;
+  toggleCmdk: () => void;
+  setAccent: (accent: AccentName) => void;
+  requestFitView: () => void;
   setSqlDraft: (sql: string) => void;
   parseSql: () => void;
   formatSql: () => void;
@@ -176,8 +200,17 @@ function buildSnapshotFromSchema(
     activeBottomTab: partial?.activeBottomTab ?? "problems",
     selection: partial?.selection ?? {},
     currentPreset: partial?.currentPreset ?? "ecommerce",
+    sbCollapsed: partial?.sbCollapsed ?? false,
+    jumpedLine: partial?.jumpedLine ?? null,
+    cardStyle: partial?.cardStyle ?? "lucid",
+    hoveredCol: partial?.hoveredCol ?? null,
+    cmdkOpen: partial?.cmdkOpen ?? false,
+    accent: partial?.accent ?? "green",
+    fitViewVersion: partial?.fitViewVersion ?? 0,
   };
 }
+
+let jumpClearTimer: ReturnType<typeof setTimeout> | null = null;
 
 function parsePresetSql(
   sql: string,
@@ -301,6 +334,36 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           return { projectName, schema };
         });
       },
+      toggleSidebar: () =>
+        set((state) => ({ sbCollapsed: !state.sbCollapsed })),
+      setSidebarCollapsed: (sbCollapsed) => set({ sbCollapsed }),
+      jumpToLine: (line) => {
+        if (jumpClearTimer) {
+          clearTimeout(jumpClearTimer);
+        }
+        // Set to null first so re-jumping to the same line restarts the animation.
+        set({ jumpedLine: null });
+        // Schedule the actual line-set on next tick so React/CM see the change.
+        setTimeout(() => set({ jumpedLine: line }), 0);
+        jumpClearTimer = setTimeout(() => {
+          set({ jumpedLine: null });
+          jumpClearTimer = null;
+        }, 1800);
+      },
+      clearJumpedLine: () => {
+        if (jumpClearTimer) {
+          clearTimeout(jumpClearTimer);
+          jumpClearTimer = null;
+        }
+        set({ jumpedLine: null });
+      },
+      setCardStyle: (cardStyle) => set({ cardStyle }),
+      setHoveredCol: (hoveredCol) => set({ hoveredCol }),
+      setCmdkOpen: (cmdkOpen) => set({ cmdkOpen }),
+      toggleCmdk: () => set((state) => ({ cmdkOpen: !state.cmdkOpen })),
+      setAccent: (accent) => set({ accent }),
+      requestFitView: () =>
+        set((state) => ({ fitViewVersion: state.fitViewVersion + 1 })),
       setSqlDraft: (sqlDraft) =>
         set({ sqlDraft, parserAst: parseSqlAst(sqlDraft) }),
       parseSql: () => {
@@ -642,6 +705,10 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         activeBottomTab: state.activeBottomTab,
         selection: state.selection,
         currentPreset: state.currentPreset,
+        sbCollapsed: state.sbCollapsed,
+        jumpedLine: state.jumpedLine,
+        cardStyle: state.cardStyle,
+        accent: state.accent,
       }),
     },
   ),

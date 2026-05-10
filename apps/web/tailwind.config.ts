@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"],
+  darkMode: ["selector", '[data-theme="dark"]'],
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -17,7 +17,7 @@ const config: Config = {
         card: "hsl(var(--card))",
         border: "hsl(var(--border))",
         ring: "hsl(var(--ring))",
-        accent: "hsl(var(--accent))",
+        accent: "hsl(var(--accent-hsl))",
         "accent-foreground": "hsl(var(--accent-foreground))",
         popover: "hsl(var(--popover))",
         primary: "hsl(var(--primary))",
@@ -32,7 +32,8 @@ const config: Config = {
         glow: "0 0 0 1px rgba(96, 165, 250, 0.2), 0 0 30px rgba(59, 130, 246, 0.18)"
       },
       fontFamily: {
-        sans: ["var(--font-inter)"]
+        sans: ["var(--font-sans)"],
+        mono: ["var(--font-mono)"]
       }
     }
   },
