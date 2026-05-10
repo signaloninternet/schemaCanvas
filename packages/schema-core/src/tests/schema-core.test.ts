@@ -133,9 +133,19 @@ CREATE TRIGGER sync_accounts AFTER INSERT ON accounts EXECUTE FUNCTION sync();`)
     expect(ast.supportedStatementCount).toBe(1);
     expect(ast.unsupportedStatementCount).toBe(1);
     expect(ast.root.children[0]?.children.map((node) => node.kind)).toEqual([
-      "column",
-      "column",
+      "columns",
+      "constraints",
     ]);
+    expect(
+      ast.root.children[0]?.children[0]?.children[0]?.children.map(
+        (node) => node.kind,
+      ),
+    ).toEqual(["data_type", "constraints"]);
+    expect(
+      ast.root.children[0]?.children[0]?.children[0]?.children[1]?.children.map(
+        (node) => node.kind,
+      ),
+    ).toContain("column_constraint");
     expect(ast.root.children[1]?.kind).toBe("unsupported");
   });
 
@@ -174,5 +184,48 @@ CREATE TRIGGER sync_accounts AFTER INSERT ON accounts EXECUTE FUNCTION sync();`)
     );
     expect(migration).toContain("-- WARNING:");
     expect(migration).toContain("DROP COLUMN id;");
+  });
+
+  it("diffs enum values by qualified name when schema versions have different ids", () => {
+    const previous = parseSchemaSql(
+      `CREATE TYPE order_status AS ENUM ('pending', 'paid');`,
+    );
+    const next = parseSchemaSql(
+      `CREATE TYPE order_status AS ENUM ('pending', 'paid', 'cancelled');`,
+    );
+
+    const migration = generateMigrationPreview(previous.schema, next.schema);
+
+    expect(migration).toContain(
+      "ALTER TYPE order_status ADD VALUE IF NOT EXISTS 'cancelled';",
+    );
+    expect(migration).not.toContain("CREATE TYPE order_status");
+  });
+
+  it("does not re-add unchanged foreign keys after parsing a newer SQL version", () => {
+    const previousSql = `CREATE TABLE customers (
+  id UUID PRIMARY KEY
+);
+
+CREATE TABLE orders (
+  id UUID PRIMARY KEY,
+  customer_id UUID NOT NULL REFERENCES customers(id)
+);`;
+    const nextSql = `CREATE TABLE customers (
+  id UUID PRIMARY KEY,
+  phone TEXT
+);
+
+CREATE TABLE orders (
+  id UUID PRIMARY KEY,
+  customer_id UUID NOT NULL REFERENCES customers(id)
+);`;
+
+    const previous = parseSchemaSql(previousSql);
+    const next = parseSchemaSql(nextSql, { previousSchema: previous.schema });
+    const migration = generateMigrationPreview(previous.schema, next.schema);
+
+    expect(migration).toContain("ALTER TABLE customers ADD COLUMN phone TEXT;");
+    expect(migration).not.toContain("ADD FOREIGN KEY (customer_id)");
   });
 });

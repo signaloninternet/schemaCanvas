@@ -3,7 +3,7 @@ import type {
   SchemaForeignKey,
   SchemaModel,
   SchemaProblem,
-  SchemaTable
+  SchemaTable,
 } from "../model/types";
 import {
   cloneSchema,
@@ -12,7 +12,7 @@ import {
   getTableByName,
   normalizeIdentifier,
   splitQualifiedName,
-  syncColumnReferences
+  syncColumnReferences,
 } from "../model/utils";
 import { createError, createWarning } from "../operations/shared";
 
@@ -36,7 +36,8 @@ export function splitSqlStatements(sql: string): SqlStatement[] {
 
     if (nextTwo === "--" && !quote) {
       const endOfLine = sql.indexOf("\n", index);
-      const comment = endOfLine === -1 ? sql.slice(index) : sql.slice(index, endOfLine);
+      const comment =
+        endOfLine === -1 ? sql.slice(index) : sql.slice(index, endOfLine);
       current += comment;
       index += comment.length - 1;
       continue;
@@ -81,7 +82,7 @@ export function splitSqlStatements(sql: string): SqlStatement[] {
         if (current.trim()) {
           statements.push({
             statement: current.trim(),
-            line: startLine
+            line: startLine,
           });
         }
         current = "";
@@ -102,7 +103,7 @@ export function splitSqlStatements(sql: string): SqlStatement[] {
   if (current.trim()) {
     statements.push({
       statement: current.trim(),
-      line: startLine
+      line: startLine,
     });
   }
 
@@ -201,62 +202,89 @@ export function parseColumnList(input: string): string[] {
 
 export function mergeWithPreviousLayout(
   parsedSchema: SchemaModel,
-  previousSchema?: SchemaModel
+  previousSchema?: SchemaModel,
 ): SchemaModel {
   if (!previousSchema) {
     return parsedSchema;
   }
 
   const nextSchema = cloneSchema(parsedSchema);
+  const tableIdMap = new Map<string, string>();
+  const columnIdMap = new Map<string, string>();
+
   for (const table of nextSchema.tables) {
-    const previousTable = getTableByName(previousSchema, table.name, table.schema);
+    const previousTable = getTableByName(
+      previousSchema,
+      table.name,
+      table.schema,
+    );
     if (!previousTable) {
       continue;
     }
 
+    tableIdMap.set(table.id, previousTable.id);
     table.id = previousTable.id;
-    nextSchema.layout[table.id] = previousSchema.layout[previousTable.id] ?? { x: 0, y: 0 };
+    nextSchema.layout[table.id] = previousSchema.layout[previousTable.id] ?? {
+      x: 0,
+      y: 0,
+    };
 
     for (const column of table.columns) {
       const previousColumn = previousTable.columns.find(
-        (candidate) => candidate.name === column.name
+        (candidate) => candidate.name === column.name,
       );
       if (previousColumn) {
+        columnIdMap.set(column.id, previousColumn.id);
         column.id = previousColumn.id;
       }
     }
   }
 
   for (const relationship of nextSchema.relationships) {
-    const sourceTable = nextSchema.tables.find((table) => table.id === relationship.sourceTableId);
-    const targetTable = nextSchema.tables.find((table) => table.id === relationship.targetTableId);
+    relationship.sourceTableId =
+      tableIdMap.get(relationship.sourceTableId) ?? relationship.sourceTableId;
+    relationship.targetTableId =
+      tableIdMap.get(relationship.targetTableId) ?? relationship.targetTableId;
+    relationship.sourceColumnId =
+      columnIdMap.get(relationship.sourceColumnId) ??
+      relationship.sourceColumnId;
+    relationship.targetColumnId =
+      columnIdMap.get(relationship.targetColumnId) ??
+      relationship.targetColumnId;
+
+    const sourceTable = nextSchema.tables.find(
+      (table) => table.id === relationship.sourceTableId,
+    );
+    const targetTable = nextSchema.tables.find(
+      (table) => table.id === relationship.targetTableId,
+    );
     if (!sourceTable || !targetTable) {
       continue;
     }
 
     const previousMatch = previousSchema.relationships.find((candidate) => {
       const previousSourceTable = previousSchema.tables.find(
-        (table) => table.id === candidate.sourceTableId
+        (table) => table.id === candidate.sourceTableId,
       );
       const previousTargetTable = previousSchema.tables.find(
-        (table) => table.id === candidate.targetTableId
+        (table) => table.id === candidate.targetTableId,
       );
       if (!previousSourceTable || !previousTargetTable) {
         return false;
       }
 
       const previousSourceColumn = previousSourceTable.columns.find(
-        (column) => column.id === candidate.sourceColumnId
+        (column) => column.id === candidate.sourceColumnId,
       );
       const previousTargetColumn = previousTargetTable.columns.find(
-        (column) => column.id === candidate.targetColumnId
+        (column) => column.id === candidate.targetColumnId,
       );
 
       const nextSourceColumn = sourceTable.columns.find(
-        (column) => column.id === relationship.sourceColumnId
+        (column) => column.id === relationship.sourceColumnId,
       );
       const nextTargetColumn = targetTable.columns.find(
-        (column) => column.id === relationship.targetColumnId
+        (column) => column.id === relationship.targetColumnId,
       );
 
       return (
@@ -277,36 +305,39 @@ export function mergeWithPreviousLayout(
 
 export function resolveTable(
   schema: SchemaModel,
-  tableName: string
+  tableName: string,
 ): SchemaTable | undefined {
   const { schema: schemaName, name } = splitQualifiedName(tableName);
   return schema.tables.find(
-    (table) => table.schema === schemaName && table.name === normalizeIdentifier(name)
+    (table) =>
+      table.schema === schemaName && table.name === normalizeIdentifier(name),
   );
 }
 
 export function resolveColumn(
   table: SchemaTable,
-  columnName: string
+  columnName: string,
 ): SchemaColumn | undefined {
-  return table.columns.find((column) => column.name === normalizeIdentifier(columnName));
+  return table.columns.find(
+    (column) => column.name === normalizeIdentifier(columnName),
+  );
 }
 
 export function createParseError(
   message: string,
   line: number,
-  statement: string
+  statement: string,
 ): SchemaProblem {
   return createError("parse_error", message, {
     line,
     column: 1,
-    statement
+    statement,
   });
 }
 
 export function createUnsupportedWarning(
   statement: string,
-  reason: string
+  reason: string,
 ): SchemaProblem {
   return createWarning("unsupported_statement", reason, { statement });
 }
@@ -316,7 +347,7 @@ export function createWorkingSchema(projectName?: string): SchemaModel {
 }
 
 export function parseReferenceTarget(
-  token: string
+  token: string,
 ): { tableName: string; columnName: string } | null {
   const cleaned = token.trim();
   const match = cleaned.match(/^([A-Za-z0-9_."-]+)\s*\(([^)]+)\)$/);
@@ -326,18 +357,18 @@ export function parseReferenceTarget(
 
   return {
     tableName: match[1] ?? "",
-    columnName: normalizeIdentifier(match[2] ?? "")
+    columnName: normalizeIdentifier(match[2] ?? ""),
   };
 }
 
 export function extractTrailingAction(
   tokens: string[],
-  keyword: "DELETE" | "UPDATE"
+  keyword: "DELETE" | "UPDATE",
 ): string | undefined {
   const index = tokens.findIndex(
     (token, tokenIndex) =>
       token.toUpperCase() === "ON" &&
-      tokens[tokenIndex + 1]?.toUpperCase() === keyword
+      tokens[tokenIndex + 1]?.toUpperCase() === keyword,
   );
   if (index === -1) {
     return undefined;
@@ -351,14 +382,14 @@ export function resolveTableAndColumn(
   tableName: string,
   columnName: string,
   contextStatement: string,
-  line: number
+  line: number,
 ): { table: SchemaTable; column: SchemaColumn } | SchemaProblem {
   const table = resolveTable(schema, tableName);
   if (!table) {
     return createParseError(
       `Referenced table "${tableName}" was not found.`,
       line,
-      contextStatement
+      contextStatement,
     );
   }
 
@@ -367,7 +398,7 @@ export function resolveTableAndColumn(
     return createParseError(
       `Referenced column "${columnName}" was not found on "${tableName}".`,
       line,
-      contextStatement
+      contextStatement,
     );
   }
 
@@ -384,14 +415,14 @@ export function createRelationship(
   statement: string,
   constraintName?: string,
   onDelete?: string,
-  onUpdate?: string
+  onUpdate?: string,
 ): SchemaForeignKey | SchemaProblem {
   const target = resolveTableAndColumn(
     schema,
     targetTableName,
     targetColumnName,
     statement,
-    line
+    line,
   );
   if ("severity" in target) {
     return target;
@@ -405,6 +436,6 @@ export function createRelationship(
     targetColumnId: target.column.id,
     onDelete,
     onUpdate,
-    constraintName
+    constraintName,
   };
 }

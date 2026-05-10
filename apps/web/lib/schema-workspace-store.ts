@@ -41,6 +41,7 @@ export type BottomTab =
   | "migration"
   | "documentation"
   | "pipeline"
+  | "mindmap"
   | "json";
 export type ExamplePreset =
   | "blank"
@@ -63,6 +64,8 @@ interface WorkspaceSnapshot {
   parserAst: SchemaAst;
   validationProblems: SchemaProblem[];
   migrationPreview: string;
+  migrationSourceLabel: string;
+  migrationTargetLabel: string;
   activeBottomTab: BottomTab;
   selection: SchemaSelection;
   currentPreset: ExamplePreset;
@@ -114,6 +117,45 @@ interface WorkspaceState extends WorkspaceSnapshot {
   resetToBlank: () => void;
 }
 
+const noMigrationChanges = "-- No schema changes detected.";
+
+const ecommerceMainBranchSql = `CREATE TYPE order_status AS ENUM ('pending', 'paid');
+
+CREATE TABLE customers (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE products (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  sku TEXT UNIQUE,
+  price NUMERIC(10,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE orders (
+  id UUID PRIMARY KEY,
+  customer_id UUID NOT NULL REFERENCES customers(id),
+  status order_status NOT NULL DEFAULT 'pending',
+  total_amount NUMERIC(10,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE order_items (
+  id UUID PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES orders(id),
+  product_id UUID NOT NULL REFERENCES products(id),
+  quantity INTEGER NOT NULL DEFAULT 1,
+  unit_price NUMERIC(10,2) NOT NULL
+);
+
+COMMENT ON TABLE customers IS 'Stores customer profile information.';
+COMMENT ON COLUMN customers.email IS 'Customer email address.';
+`;
+
 function buildSnapshotFromSchema(
   schema: SchemaModel,
   sqlDraft: string,
@@ -128,8 +170,9 @@ function buildSnapshotFromSchema(
     parserWarnings: partial?.parserWarnings ?? [],
     parserErrors: partial?.parserErrors ?? [],
     validationProblems,
-    migrationPreview:
-      partial?.migrationPreview ?? generateMigrationPreview(null, schema),
+    migrationPreview: partial?.migrationPreview ?? noMigrationChanges,
+    migrationSourceLabel: partial?.migrationSourceLabel ?? "Previous version",
+    migrationTargetLabel: partial?.migrationTargetLabel ?? "Current workspace",
     activeBottomTab: partial?.activeBottomTab ?? "problems",
     selection: partial?.selection ?? {},
     currentPreset: partial?.currentPreset ?? "ecommerce",
@@ -140,19 +183,35 @@ function parsePresetSql(
   sql: string,
   projectName: string,
   preset: ExamplePreset,
+  comparison?: {
+    sourceSql: string;
+    sourceLabel: string;
+    targetLabel: string;
+  },
 ): WorkspaceSnapshot {
   const parsed = parseSchemaSql(sql, { projectName });
   const layoutApplied = autoLayoutSchema(parsed.schema);
   const nextSql = generateSchemaSql(layoutApplied, {
     includeUnsupportedStatements: true,
   });
+  const migrationPreview = comparison
+    ? generateMigrationPreview(
+        parseSchemaSql(comparison.sourceSql, {
+          previousSchema: layoutApplied,
+          projectName,
+        }).schema,
+        layoutApplied,
+      )
+    : noMigrationChanges;
 
   return buildSnapshotFromSchema(layoutApplied, nextSql, {
     parserWarnings: parsed.warnings,
     parserErrors: parsed.errors,
     projectName,
     currentPreset: preset,
-    migrationPreview: generateMigrationPreview(null, layoutApplied),
+    migrationPreview,
+    migrationSourceLabel: comparison?.sourceLabel ?? "Loaded preset",
+    migrationTargetLabel: comparison?.targetLabel ?? "Current workspace",
   });
 }
 
@@ -161,7 +220,7 @@ function createBlankSnapshot(): WorkspaceSnapshot {
   return buildSnapshotFromSchema(schema, "", {
     projectName: "SchemaCanvas",
     currentPreset: "blank",
-    migrationPreview: "-- No schema changes detected.",
+    migrationPreview: noMigrationChanges,
   });
 }
 
@@ -173,6 +232,11 @@ const presetSnapshots: Record<
     simpleEcommerceSql,
     "SchemaCanvas Demo",
     "ecommerce",
+    {
+      sourceSql: ecommerceMainBranchSql,
+      sourceLabel: "main v0.4",
+      targetLabel: "analytics-fork v0.2",
+    },
   ),
   "project-management": parsePresetSql(
     projectManagementSql,
@@ -199,6 +263,8 @@ function applySchemaUpdate(
   | "parserAst"
   | "validationProblems"
   | "migrationPreview"
+  | "migrationSourceLabel"
+  | "migrationTargetLabel"
   | "projectName"
 > {
   const schema = cloneSchema(nextSchema);
@@ -214,6 +280,8 @@ function applySchemaUpdate(
     parserWarnings: [],
     validationProblems: validateSchema(schema).problems,
     migrationPreview: generateMigrationPreview(previousSchema, schema),
+    migrationSourceLabel: "Previous version",
+    migrationTargetLabel: "Current workspace",
     projectName,
   };
 }
@@ -266,7 +334,9 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           parserErrors: [],
           parserWarnings: parsed.warnings,
           validationProblems: validateSchema(schema).problems,
-          migrationPreview: generateMigrationPreview(null, schema),
+          migrationPreview: generateMigrationPreview(state.schema, schema),
+          migrationSourceLabel: "Previous valid schema",
+          migrationTargetLabel: "Current SQL draft",
           selection: {},
         });
       },
@@ -296,6 +366,12 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
           parserErrors: [],
           parserWarnings: parsed.warnings,
           validationProblems: validateSchema(parsed.schema).problems,
+          migrationPreview: generateMigrationPreview(
+            state.schema,
+            parsed.schema,
+          ),
+          migrationSourceLabel: "Previous valid schema",
+          migrationTargetLabel: "Formatted SQL draft",
         });
       },
       validateCurrent: () => {
@@ -516,6 +592,9 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
               projectName: projectName ?? state.projectName,
               parserWarnings: parsed.warnings,
               parserErrors: [],
+              migrationPreview: generateMigrationPreview(state.schema, schema),
+              migrationSourceLabel: "Previous workspace",
+              migrationTargetLabel: projectName ?? state.projectName,
               activeBottomTab: "migration",
               currentPreset: "blank",
             },
@@ -523,6 +602,7 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         });
       },
       importSchemaModel: (payload) => {
+        const state = get();
         const parsed = schemaModelSchema.safeParse(JSON.parse(payload));
         if (!parsed.success) {
           throw new Error("SchemaModel JSON is invalid.");
@@ -537,6 +617,9 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
             projectName: schema.metadata.projectName,
             currentPreset: "blank",
             activeBottomTab: "json",
+            migrationPreview: generateMigrationPreview(state.schema, schema),
+            migrationSourceLabel: "Previous workspace",
+            migrationTargetLabel: schema.metadata.projectName,
           }),
         );
       },
@@ -554,6 +637,8 @@ export const useSchemaWorkspaceStore = create<WorkspaceState>()(
         parserAst: state.parserAst,
         validationProblems: state.validationProblems,
         migrationPreview: state.migrationPreview,
+        migrationSourceLabel: state.migrationSourceLabel,
+        migrationTargetLabel: state.migrationTargetLabel,
         activeBottomTab: state.activeBottomTab,
         selection: state.selection,
         currentPreset: state.currentPreset,

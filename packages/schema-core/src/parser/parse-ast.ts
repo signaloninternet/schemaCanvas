@@ -47,6 +47,7 @@ function parseColumnAst(
   statementIndex: number,
   columnIndex: number,
 ): SchemaAstNode {
+  const nodeId = `stmt_${statementIndex}_column_${columnIndex}`;
   const tokens = tokenizeTopLevel(fragment);
   const columnName = normalizeIdentifier(tokens[0] ?? "");
   const constraintStart = tokens.findIndex((token, index) => {
@@ -61,6 +62,26 @@ function parseColumnAst(
     constraintStart === -1 ? tokens.slice(1) : tokens.slice(1, constraintStart);
   const constraintTokens =
     constraintStart === -1 ? [] : tokens.slice(constraintStart);
+  const constraintChildren: SchemaAstNode[] = [];
+
+  const addConstraint = (
+    label: string,
+    raw: string,
+    attributes: NonNullable<SchemaAstNode["attributes"]>,
+    children: SchemaAstNode[] = [],
+  ): void => {
+    constraintChildren.push(
+      createAstNode(
+        `${nodeId}_constraint_${constraintChildren.length}`,
+        "column_constraint",
+        label,
+        line,
+        raw,
+        attributes,
+        children,
+      ),
+    );
+  };
 
   const attributes: NonNullable<SchemaAstNode["attributes"]> = {
     name: columnName,
@@ -91,6 +112,10 @@ function parseColumnAst(
     ) {
       attributes.primaryKey = true;
       attributes.nullable = false;
+      addConstraint("primary key", "PRIMARY KEY", {
+        kind: "primary_key",
+        nullable: false,
+      });
       cursor += 2;
       continue;
     }
@@ -100,18 +125,29 @@ function parseColumnAst(
       constraintTokens[cursor + 1]?.toUpperCase() === "NULL"
     ) {
       attributes.nullable = false;
+      addConstraint("not null", "NOT NULL", {
+        kind: "not_null",
+        nullable: false,
+      });
       cursor += 2;
       continue;
     }
 
     if (token === "NULL") {
       attributes.nullable = true;
+      addConstraint("nullable", "NULL", {
+        kind: "null",
+        nullable: true,
+      });
       cursor += 1;
       continue;
     }
 
     if (token === "UNIQUE") {
       attributes.unique = true;
+      addConstraint("unique", "UNIQUE", {
+        kind: "unique",
+      });
       cursor += 1;
       continue;
     }
@@ -129,18 +165,44 @@ function parseColumnAst(
       attributes.defaultValue = constraintTokens
         .slice(cursor + 1, end)
         .join(" ");
+      addConstraint("default", `DEFAULT ${attributes.defaultValue}`, {
+        kind: "default",
+        value: attributes.defaultValue,
+      });
       cursor = end;
       continue;
     }
 
     if (token === "REFERENCES") {
       attributes.references = constraintTokens[cursor + 1] ?? "";
+      addConstraint(
+        "references",
+        `REFERENCES ${attributes.references}`,
+        {
+          kind: "references",
+        },
+        [
+          createAstNode(
+            `${nodeId}_reference`,
+            "reference",
+            attributes.references,
+            line,
+            attributes.references,
+            {
+              target: attributes.references,
+            },
+          ),
+        ],
+      );
       cursor += 2;
       continue;
     }
 
     if (token === "CHECK") {
       attributes.check = true;
+      addConstraint("check", "CHECK", {
+        kind: "check",
+      });
       cursor += 1;
       continue;
     }
@@ -149,12 +211,35 @@ function parseColumnAst(
   }
 
   return createAstNode(
-    `stmt_${statementIndex}_column_${columnIndex}`,
+    nodeId,
     "column",
     columnName || "column",
     line,
     fragment,
     attributes,
+    [
+      createAstNode(
+        `${nodeId}_type`,
+        "data_type",
+        String(attributes.type),
+        line,
+        typeTokens.join(" "),
+        {
+          type: String(attributes.type),
+        },
+      ),
+      createAstNode(
+        `${nodeId}_constraints`,
+        "constraints",
+        "constraints",
+        line,
+        constraintTokens.join(" "),
+        {
+          count: constraintChildren.length,
+        },
+        constraintChildren,
+      ),
+    ],
   );
 }
 
@@ -173,6 +258,7 @@ function parseTableConstraintAst(
     : undefined;
   const content = constraintMatch ? (constraintMatch[2] ?? "") : body;
   const attributes: NonNullable<SchemaAstNode["attributes"]> = {};
+  const children: SchemaAstNode[] = [];
 
   if (constraintName) {
     attributes.name = constraintName;
@@ -194,6 +280,18 @@ function parseTableConstraintAst(
   if (checkMatch) {
     attributes.kind = "check";
     attributes.expression = checkMatch[1]?.trim() ?? "";
+    children.push(
+      createAstNode(
+        `stmt_${statementIndex}_constraint_${constraintIndex}_expression`,
+        "expression",
+        "check expression",
+        line,
+        attributes.expression,
+        {
+          expression: attributes.expression,
+        },
+      ),
+    );
   }
 
   const foreignKeyMatch = content.match(
@@ -203,10 +301,49 @@ function parseTableConstraintAst(
     attributes.kind = "foreign_key";
     attributes.columns = parseColumnList(foreignKeyMatch[1] ?? "");
     attributes.references = `${foreignKeyMatch[2] ?? ""}(${foreignKeyMatch[3] ?? ""})`;
+    children.push(
+      createAstNode(
+        `stmt_${statementIndex}_constraint_${constraintIndex}_reference`,
+        "reference",
+        attributes.references,
+        line,
+        attributes.references,
+        {
+          target: attributes.references,
+        },
+      ),
+    );
   }
 
   if (!attributes.kind) {
     attributes.kind = "unknown";
+  }
+
+  if (Array.isArray(attributes.columns)) {
+    children.unshift(
+      createAstNode(
+        `stmt_${statementIndex}_constraint_${constraintIndex}_columns`,
+        "columns",
+        "columns",
+        line,
+        attributes.columns.join(", "),
+        {
+          count: attributes.columns.length,
+        },
+        attributes.columns.map((column, columnIndex) =>
+          createAstNode(
+            `stmt_${statementIndex}_constraint_${constraintIndex}_column_${columnIndex}`,
+            "identifier",
+            column,
+            line,
+            column,
+            {
+              name: column,
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   return createAstNode(
@@ -216,6 +353,7 @@ function parseTableConstraintAst(
     line,
     fragment,
     attributes,
+    children,
   );
 }
 
@@ -272,7 +410,10 @@ function parseCreateTableAst(
 
   const nameParts = splitQualifiedName(match[1] ?? "");
   const fragments = splitTopLevelComma(match[2] ?? "");
-  const children = fragments.map((fragment, fragmentIndex) => {
+  const columnNodes: SchemaAstNode[] = [];
+  const constraintNodes: SchemaAstNode[] = [];
+
+  for (const [fragmentIndex, fragment] of fragments.entries()) {
     const upper = fragment.trim().toUpperCase();
     if (
       upper.startsWith("CONSTRAINT") ||
@@ -281,16 +422,16 @@ function parseCreateTableAst(
       upper.startsWith("UNIQUE") ||
       upper.startsWith("CHECK")
     ) {
-      return parseTableConstraintAst(
-        fragment,
-        line,
-        statementIndex,
-        fragmentIndex,
+      constraintNodes.push(
+        parseTableConstraintAst(fragment, line, statementIndex, fragmentIndex),
       );
+      continue;
     }
 
-    return parseColumnAst(fragment, line, statementIndex, fragmentIndex);
-  });
+    columnNodes.push(
+      parseColumnAst(fragment, line, statementIndex, fragmentIndex),
+    );
+  }
 
   return createAstNode(
     `stmt_${statementIndex}`,
@@ -301,11 +442,33 @@ function parseCreateTableAst(
     {
       schema: nameParts.schema,
       name: nameParts.name,
-      columns: children.filter((child) => child.kind === "column").length,
-      constraints: children.filter((child) => child.kind === "table_constraint")
-        .length,
+      columns: columnNodes.length,
+      constraints: constraintNodes.length,
     },
-    children,
+    [
+      createAstNode(
+        `stmt_${statementIndex}_columns`,
+        "columns",
+        "columns",
+        line,
+        match[2] ?? "",
+        {
+          count: columnNodes.length,
+        },
+        columnNodes,
+      ),
+      createAstNode(
+        `stmt_${statementIndex}_constraints`,
+        "constraints",
+        "table constraints",
+        line,
+        match[2] ?? "",
+        {
+          count: constraintNodes.length,
+        },
+        constraintNodes,
+      ),
+    ],
   );
 }
 

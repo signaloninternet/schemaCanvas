@@ -145,11 +145,18 @@ export type SchemaAstNodeKind =
   | "statement"
   | "create_type_enum"
   | "create_table"
+  | "columns"
   | "column"
+  | "data_type"
+  | "constraints"
+  | "column_constraint"
   | "table_constraint"
   | "create_index"
   | "comment"
   | "enum_value"
+  | "identifier"
+  | "reference"
+  | "expression"
   | "unsupported";
 
 export type SchemaAstNodeStatus = "parsed" | "warning" | "error";

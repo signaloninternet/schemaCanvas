@@ -50,21 +50,102 @@ function isPotentiallyDestructiveTypeChange(
   );
 }
 
+function findMatchingTable(
+  schema: SchemaModel,
+  table: SchemaModel["tables"][number],
+): SchemaModel["tables"][number] | undefined {
+  return (
+    schema.tables.find((candidate) => candidate.id === table.id) ??
+    schema.tables.find(
+      (candidate) =>
+        candidate.schema === table.schema && candidate.name === table.name,
+    )
+  );
+}
+
+function findMatchingColumn(
+  table: SchemaModel["tables"][number],
+  column: SchemaModel["tables"][number]["columns"][number],
+): SchemaModel["tables"][number]["columns"][number] | undefined {
+  return (
+    table.columns.find((candidate) => candidate.id === column.id) ??
+    table.columns.find((candidate) => candidate.name === column.name)
+  );
+}
+
+function findMatchingEnum(
+  previous: SchemaModel,
+  enumeration: SchemaModel["enums"][number],
+): SchemaModel["enums"][number] | undefined {
+  return (
+    previous.enums.find((candidate) => candidate.id === enumeration.id) ??
+    previous.enums.find(
+      (candidate) =>
+        candidate.schema === enumeration.schema &&
+        candidate.name === enumeration.name,
+    )
+  );
+}
+
+function relationshipSignature(
+  schema: SchemaModel,
+  relationship: SchemaModel["relationships"][number],
+): string | undefined {
+  const sourceTable = getTableById(schema, relationship.sourceTableId);
+  const targetTable = getTableById(schema, relationship.targetTableId);
+  const sourceColumn = sourceTable?.columns.find(
+    (column) => column.id === relationship.sourceColumnId,
+  );
+  const targetColumn = targetTable?.columns.find(
+    (column) => column.id === relationship.targetColumnId,
+  );
+
+  if (!sourceTable || !targetTable || !sourceColumn || !targetColumn) {
+    return undefined;
+  }
+
+  return [
+    qualifyName(sourceTable.schema, sourceTable.name),
+    sourceColumn.name,
+    qualifyName(targetTable.schema, targetTable.name),
+    targetColumn.name,
+    relationship.onDelete ?? "",
+    relationship.onUpdate ?? "",
+  ].join("|");
+}
+
+function hasMatchingRelationship(
+  previous: SchemaModel,
+  next: SchemaModel,
+  relationship: SchemaModel["relationships"][number],
+): boolean {
+  if (
+    previous.relationships.some((candidate) => candidate.id === relationship.id)
+  ) {
+    return true;
+  }
+
+  const nextSignature = relationshipSignature(next, relationship);
+  if (!nextSignature) {
+    return false;
+  }
+
+  return previous.relationships.some(
+    (candidate) => relationshipSignature(previous, candidate) === nextSignature,
+  );
+}
+
 function diffColumns(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
 
   for (const table of next.tables) {
-    const previousTable = previous.tables.find(
-      (candidate) => candidate.id === table.id,
-    );
+    const previousTable = findMatchingTable(previous, table);
     if (!previousTable) {
       continue;
     }
 
     for (const column of table.columns) {
-      const previousColumn = previousTable.columns.find(
-        (candidate) => candidate.id === column.id,
-      );
+      const previousColumn = findMatchingColumn(previousTable, column);
       if (!previousColumn) {
         statements.push(
           `ALTER TABLE ${qualifyName(table.schema, table.name)} ADD COLUMN ${column.name} ${column.type}${column.nullable ? "" : " NOT NULL"}${column.defaultValue ? ` DEFAULT ${column.defaultValue}` : ""};`,
@@ -115,7 +196,11 @@ function diffColumns(previous: SchemaModel, next: SchemaModel): string[] {
 
     for (const previousColumn of previousTable.columns) {
       if (
-        !table.columns.some((candidate) => candidate.id === previousColumn.id)
+        !table.columns.some(
+          (candidate) =>
+            candidate.id === previousColumn.id ||
+            candidate.name === previousColumn.name,
+        )
       ) {
         const dependentRelationships = previous.relationships.filter(
           (relationship) =>
@@ -153,9 +238,7 @@ function diffColumns(previous: SchemaModel, next: SchemaModel): string[] {
 function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const table of next.tables) {
-    const previousTable = previous.tables.find(
-      (candidate) => candidate.id === table.id,
-    );
+    const previousTable = findMatchingTable(previous, table);
     if (!previousTable) {
       statements.push(
         generateSchemaSql({
@@ -189,27 +272,29 @@ function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
   }
 
   for (const table of previous.tables) {
-    if (!next.tables.some((candidate) => candidate.id === table.id)) {
-      const dependentRelationships = previous.relationships.filter(
-        (relationship) =>
-          relationship.sourceTableId === table.id ||
-          relationship.targetTableId === table.id,
-      );
-      if (dependentRelationships.length > 0) {
-        statements.push(
-          warning(
-            `Dropping ${qualifyName(table.schema, table.name)} removes ${dependentRelationships.length} foreign key dependency/dependencies.`,
-          ),
-        );
-      } else {
-        statements.push(
-          warning(
-            `Dropping ${qualifyName(table.schema, table.name)} permanently removes the table and its data.`,
-          ),
-        );
-      }
-      statements.push(`DROP TABLE ${qualifyName(table.schema, table.name)};`);
+    if (findMatchingTable(next, table)) {
+      continue;
     }
+
+    const dependentRelationships = previous.relationships.filter(
+      (relationship) =>
+        relationship.sourceTableId === table.id ||
+        relationship.targetTableId === table.id,
+    );
+    if (dependentRelationships.length > 0) {
+      statements.push(
+        warning(
+          `Dropping ${qualifyName(table.schema, table.name)} removes ${dependentRelationships.length} foreign key dependency/dependencies.`,
+        ),
+      );
+    } else {
+      statements.push(
+        warning(
+          `Dropping ${qualifyName(table.schema, table.name)} permanently removes the table and its data.`,
+        ),
+      );
+    }
+    statements.push(`DROP TABLE ${qualifyName(table.schema, table.name)};`);
   }
 
   return statements;
@@ -218,9 +303,7 @@ function diffTables(previous: SchemaModel, next: SchemaModel): string[] {
 function diffEnums(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const enumeration of next.enums) {
-    const previousEnum = previous.enums.find(
-      (candidate) => candidate.id === enumeration.id,
-    );
+    const previousEnum = findMatchingEnum(previous, enumeration);
     if (!previousEnum) {
       statements.push(
         `CREATE TYPE ${qualifyName(enumeration.schema, enumeration.name)} AS ENUM (${enumeration.values.map((value) => `'${value}'`).join(", ")});`,
@@ -243,11 +326,7 @@ function diffEnums(previous: SchemaModel, next: SchemaModel): string[] {
 function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
   const statements: string[] = [];
   for (const relationship of next.relationships) {
-    if (
-      previous.relationships.some(
-        (candidate) => candidate.id === relationship.id,
-      )
-    ) {
+    if (hasMatchingRelationship(previous, next, relationship)) {
       continue;
     }
 
@@ -279,9 +358,7 @@ function diffRelationships(previous: SchemaModel, next: SchemaModel): string[] {
   }
 
   for (const relationship of previous.relationships) {
-    if (
-      next.relationships.some((candidate) => candidate.id === relationship.id)
-    ) {
+    if (hasMatchingRelationship(next, previous, relationship)) {
       continue;
     }
 
