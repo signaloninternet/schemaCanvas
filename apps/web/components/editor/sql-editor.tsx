@@ -136,19 +136,19 @@ const flagField = StateField.define<FlagFieldValue>({
 });
 
 const designHighlight = HighlightStyle.define([
-  // Keywords (CREATE, TABLE, FROM, ...) → accent
-  { tag: t.keyword, color: "var(--accent)", fontWeight: "500" },
-  { tag: t.controlKeyword, color: "var(--accent)", fontWeight: "500" },
-  { tag: t.modifier, color: "var(--accent)", fontWeight: "500" },
-  // Types (UUID, TEXT, INTEGER, ...) → violet
-  { tag: t.typeName, color: "var(--tbl-violet)" },
-  { tag: t.standard(t.typeName), color: "var(--tbl-violet)" },
-  // Strings → emerald
-  { tag: t.string, color: "var(--tbl-emerald)" },
-  { tag: t.special(t.string), color: "var(--tbl-emerald)" },
-  // Numbers → amber
-  { tag: t.number, color: "var(--tbl-amber)" },
-  { tag: t.bool, color: "var(--tbl-amber)" },
+  // Keywords (CREATE, TABLE, FROM, ...) → pink
+  { tag: t.keyword, color: "var(--syntax-keyword)", fontWeight: "500" },
+  { tag: t.controlKeyword, color: "var(--syntax-keyword)", fontWeight: "500" },
+  { tag: t.modifier, color: "var(--syntax-keyword)", fontWeight: "500" },
+  // Types (UUID, TEXT, INTEGER, ...) → blue
+  { tag: t.typeName, color: "var(--syntax-type)" },
+  { tag: t.standard(t.typeName), color: "var(--syntax-type)" },
+  // Strings → green
+  { tag: t.string, color: "var(--syntax-string)" },
+  { tag: t.special(t.string), color: "var(--syntax-string)" },
+  // Numbers and booleans → orange
+  { tag: t.number, color: "var(--syntax-number)" },
+  { tag: t.bool, color: "var(--syntax-number)" },
   // Comments → muted italic
   {
     tag: t.comment,
@@ -158,9 +158,9 @@ const designHighlight = HighlightStyle.define([
   { tag: t.lineComment, color: "var(--ink-4)", fontStyle: "italic" },
   { tag: t.blockComment, color: "var(--ink-4)", fontStyle: "italic" },
   // Functions → blue
-  { tag: t.function(t.variableName), color: "var(--tbl-blue)" },
-  { tag: t.function(t.propertyName), color: "var(--tbl-blue)" },
-  { tag: t.function(t.definition(t.variableName)), color: "var(--tbl-blue)" },
+  { tag: t.function(t.variableName), color: "var(--syntax-type)" },
+  { tag: t.function(t.propertyName), color: "var(--syntax-type)" },
+  { tag: t.function(t.definition(t.variableName)), color: "var(--syntax-type)" },
   // Punctuation → ink-3
   { tag: t.punctuation, color: "var(--ink-3)" },
   { tag: t.bracket, color: "var(--ink-3)" },
@@ -179,7 +179,7 @@ const designTheme = EditorView.theme(
     "&": {
       height: "100%",
       color: "var(--ink)",
-      backgroundColor: "var(--bg)",
+      backgroundColor: "var(--bg-elev)",
       fontFamily: "var(--font-mono)",
       fontSize: "12.5px"
     },
@@ -189,7 +189,7 @@ const designTheme = EditorView.theme(
     ".cm-scroller": {
       overflow: "auto",
       color: "var(--ink)",
-      backgroundColor: "var(--bg)",
+      backgroundColor: "var(--bg-elev)",
       fontFamily: "var(--font-mono)",
       lineHeight: "22px",
       scrollbarWidth: "thin",
@@ -208,7 +208,7 @@ const designTheme = EditorView.theme(
       padding: "14px 16px",
       caretColor: "var(--accent)",
       color: "var(--ink)",
-      backgroundColor: "var(--bg)",
+      backgroundColor: "var(--bg-elev)",
       fontFamily: "var(--font-mono)",
       fontSize: "12.5px",
       lineHeight: "22px",
@@ -231,7 +231,7 @@ const designTheme = EditorView.theme(
       backgroundColor: "transparent"
     },
     ".cm-gutters": {
-      backgroundColor: "var(--bg)",
+      backgroundColor: "var(--bg-elev)",
       color: "var(--ink-4)",
       borderRight: "1px solid var(--line)",
       fontFamily: "var(--font-mono)",

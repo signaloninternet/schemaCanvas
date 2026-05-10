@@ -181,7 +181,7 @@ export function Sidebar(): React.ReactElement {
           <button key={enumDef.id} type="button" className="sb-item">
             <span
               className="swatch"
-              style={{ background: "var(--tbl-slate)" }}
+              style={{ background: "var(--tbl-yellow)" }}
             />
             <span className="name">{enumDef.name}</span>
             <span className="meta">{enumDef.values.length}</span>

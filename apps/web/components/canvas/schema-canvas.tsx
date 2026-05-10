@@ -44,12 +44,9 @@ interface CanvasPaneProps extends SchemaCanvasProps {
 }
 
 const TABLE_COLOR_HEX_LIGHT: Record<TableColorName, string> = {
-  violet: "#7c3aed",
+  green: "#581c87",
   blue: "#2563eb",
-  emerald: "#059669",
-  amber: "#d97706",
-  rose: "#e11d48",
-  slate: "#475569"
+  yellow: "#f97316"
 };
 
 function FitViewBridge(): null {
@@ -103,7 +100,7 @@ function SchemaCanvasInner({
         position: schema.layout[table.id] ?? { x: 0, y: 0 },
         data: {
           tableId: table.id,
-          color: colorByTableId.get(table.id) ?? "slate"
+          color: colorByTableId.get(table.id) ?? "green"
         },
         draggable: true,
         selectable: true
@@ -203,7 +200,7 @@ function SchemaCanvasInner({
           nodeColor={(node) => {
             const color = (node.data as unknown as TableNodeData | undefined)
               ?.color;
-            return color ? TABLE_COLOR_HEX_LIGHT[color] : "#a8a294";
+            return color ? TABLE_COLOR_HEX_LIGHT[color] : "#581c87";
           }}
           nodeStrokeWidth={0}
           nodeBorderRadius={2}

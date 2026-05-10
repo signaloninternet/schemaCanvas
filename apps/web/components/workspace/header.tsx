@@ -36,10 +36,7 @@ export function Header({ onShare }: HeaderProps): React.ReactElement {
   return (
     <header className="hdr">
       <div className="hdr-brand">
-        <div className="hdr-mark">S</div>
-        <div className="hdr-title">
-          <span className="crumb">SchemaCanvas</span>
-        </div>
+        <img src="/examples/logo.png" alt="SchemaCanvas" className="hdr-mark" />
       </div>
 
       <div className="hdr-tabs">

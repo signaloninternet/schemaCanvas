@@ -162,7 +162,7 @@ function buildSnapshotFromSchema(
     cardStyle: partial?.cardStyle ?? "lucid",
     hoveredCol: partial?.hoveredCol ?? null,
     cmdkOpen: partial?.cmdkOpen ?? false,
-    accent: partial?.accent ?? "amber",
+    accent: partial?.accent ?? "green",
     fitViewVersion: partial?.fitViewVersion ?? 0,
   };
 }
